@@ -1,4 +1,5 @@
 import asyncio
+import math
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time, timedelta, timezone
@@ -541,66 +542,108 @@ class StatsService:
             success_expr = self._success_expr(schema)
             model_limit = max(settings.realtime_availability_model_limit, 1)
             event_limit = max(settings.realtime_availability_event_limit, 1)
+            effective_start = start_time
+            now = datetime.now(timezone.utc)
 
-            if start_time is None:
-                sql = f"""
-                    WITH ranked AS (
-                        SELECT
-                            {model_expr} AS model,
-                            {ts} AS called_at,
-                            CASE
-                                WHEN {success_expr} IS TRUE THEN 'success'
-                                WHEN {success_expr} IS FALSE THEN 'failed'
-                                ELSE 'other'
-                            END AS status,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY {model_expr}
-                                ORDER BY {ts} DESC
-                            ) AS rn,
-                            COUNT(*) OVER (PARTITION BY {model_expr}) AS total_calls
-                        FROM {table}
-                    )
+            if effective_start is None:
+                min_sql = f"SELECT MIN({ts}) AS min_called_at FROM {table}"
+                min_row = await self.pool.fetchrow(min_sql)
+                min_called_at = min_row["min_called_at"] if min_row else None
+                if min_called_at is None:
+                    return {
+                        "window": normalized_window,
+                        "event_limit": event_limit,
+                        "slot_count": event_limit,
+                        "slot_seconds": 0,
+                        "start_at": None,
+                        "end_at": now.isoformat(),
+                        "models": [],
+                    }
+                if min_called_at.tzinfo is None:
+                    min_called_at = min_called_at.replace(tzinfo=timezone.utc)
+                effective_start = min_called_at
+
+            range_seconds = max(int((now - effective_start).total_seconds()), 1)
+            slot_seconds = max(math.ceil(range_seconds / event_limit), 1)
+
+            sql = f"""
+                WITH base AS (
+                    SELECT
+                        {model_expr} AS model,
+                        {ts} AS called_at,
+                        CASE
+                            WHEN {success_expr} IS TRUE THEN 'success'
+                            WHEN {success_expr} IS FALSE THEN 'failed'
+                            ELSE 'other'
+                        END AS status
+                    FROM {table}
+                    WHERE {ts} >= $1
+                ),
+                top_models AS (
                     SELECT
                         model,
-                        MAX(total_calls)::bigint AS total_calls,
-                        ARRAY_AGG(status ORDER BY called_at DESC) AS statuses
-                    FROM ranked
-                    WHERE rn <= $1
+                        COUNT(*)::bigint AS total_calls
+                    FROM base
                     GROUP BY model
-                    ORDER BY MAX(total_calls) DESC, model ASC
+                    ORDER BY total_calls DESC, model ASC
                     LIMIT $2
-                """
-                rows = await self.pool.fetch(sql, event_limit, model_limit)
-            else:
-                sql = f"""
-                    WITH ranked AS (
-                        SELECT
-                            {model_expr} AS model,
-                            {ts} AS called_at,
-                            CASE
-                                WHEN {success_expr} IS TRUE THEN 'success'
-                                WHEN {success_expr} IS FALSE THEN 'failed'
-                                ELSE 'other'
-                            END AS status,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY {model_expr}
-                                ORDER BY {ts} DESC
-                            ) AS rn,
-                            COUNT(*) OVER (PARTITION BY {model_expr}) AS total_calls
-                        FROM {table}
-                        WHERE {ts} >= $1
-                    )
+                ),
+                bucket_events AS (
+                    SELECT
+                        b.model,
+                        LEAST(
+                            $3 - 1,
+                            GREATEST(
+                                0,
+                                FLOOR(EXTRACT(EPOCH FROM (b.called_at - $1)) / $4)::int
+                            )
+                        ) AS slot_index,
+                        b.status
+                    FROM base b
+                    JOIN top_models tm ON tm.model = b.model
+                ),
+                bucketed AS (
                     SELECT
                         model,
-                        MAX(total_calls)::bigint AS total_calls,
-                        ARRAY_AGG(status ORDER BY called_at DESC) AS statuses
-                    FROM ranked
-                    WHERE rn <= $2
-                    GROUP BY model
-                    ORDER BY MAX(total_calls) DESC, model ASC
-                    LIMIT $3
-                """
-                rows = await self.pool.fetch(sql, start_time, event_limit, model_limit)
+                        slot_index,
+                        BOOL_OR(status = 'failed') AS has_failed,
+                        BOOL_OR(status = 'success') AS has_success,
+                        BOOL_OR(status = 'other') AS has_other
+                    FROM bucket_events
+                    GROUP BY model, slot_index
+                ),
+                series AS (
+                    SELECT
+                        tm.model,
+                        tm.total_calls,
+                        s.slot_index,
+                        CASE
+                            WHEN bk.has_failed IS TRUE THEN 'failed'
+                            WHEN bk.has_success IS TRUE THEN 'success'
+                            WHEN bk.has_other IS TRUE THEN 'other'
+                            ELSE 'empty'
+                        END AS status
+                    FROM top_models tm
+                    CROSS JOIN generate_series(0, $3 - 1) AS s(slot_index)
+                    LEFT JOIN bucketed bk
+                      ON bk.model = tm.model
+                     AND bk.slot_index = s.slot_index
+                )
+                SELECT
+                    model,
+                    MAX(total_calls)::bigint AS total_calls,
+                    ARRAY_AGG(status ORDER BY slot_index ASC) AS statuses
+                FROM series
+                GROUP BY model
+                ORDER BY MAX(total_calls) DESC, model ASC
+            """
+            rows = await self.pool.fetch(
+                sql,
+                effective_start,
+                model_limit,
+                event_limit,
+                slot_seconds,
+            )
 
             models = []
             for row in rows:
@@ -618,6 +661,10 @@ class StatsService:
             return {
                 "window": normalized_window,
                 "event_limit": event_limit,
+                "slot_count": event_limit,
+                "slot_seconds": slot_seconds,
+                "start_at": effective_start.isoformat(),
+                "end_at": now.isoformat(),
                 "models": models,
             }
 

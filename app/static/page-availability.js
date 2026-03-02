@@ -170,7 +170,17 @@ function renderAvailabilityTable(rows) {
 function statusClass(status) {
   if (status === "success") return "rt-cell rt-ok";
   if (status === "failed") return "rt-cell rt-fail";
+  if (status === "empty") return "rt-cell rt-empty";
   return "rt-cell rt-other";
+}
+
+function formatSlotDuration(seconds) {
+  const sec = Number(seconds || 0);
+  if (!sec) return "-";
+  if (sec < 60) return `${sec}秒`;
+  if (sec < 3600) return `${Math.round(sec / 60)}分钟`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}小时`;
+  return `${Math.round(sec / 86400)}天`;
 }
 
 function renderRealtimeGrid(models) {
@@ -209,7 +219,10 @@ async function loadRealtimeAvailability() {
   }
   const data = await res.json();
   renderRealtimeGrid(data.models || []);
-  hintEl.textContent = `时间窗口: ${windowLabel(data.window)} | 每模型最多展示 ${data.event_limit} 次调用`;
+  hintEl.textContent =
+    `时间窗口: ${windowLabel(data.window)} | ` +
+    `每模型 ${data.slot_count || data.event_limit} 个时间格 | ` +
+    `每格约 ${formatSlotDuration(data.slot_seconds)}`;
 }
 
 async function loadAvailability() {
