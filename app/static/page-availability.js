@@ -15,6 +15,11 @@ function calcOverallAvailability(rows) {
   return (successCalls / totalCalls) * 100;
 }
 
+function getSortedAvailabilityRows(rows) {
+  const sortOrder = document.getElementById("availabilitySort")?.value || "desc";
+  return CCH.sortRows(rows, "total_calls", sortOrder);
+}
+
 function fillAvailabilityKpi(rows) {
   const totalModels = rows.length;
   const overall = calcOverallAvailability(rows);
@@ -26,9 +31,17 @@ function fillAvailabilityKpi(rows) {
 }
 
 function drawAvailabilityCharts(rows) {
-  const sortOrder = document.getElementById("availabilitySort")?.value || "desc";
-  const sorted = CCH.sortRows(rows, "total_calls", sortOrder);
-  const topRows = sorted.slice(0, 12);
+  const sorted = getSortedAvailabilityRows(rows);
+  const stackVisibleCount = 12;
+  const rateVisibleCount = 16;
+  const stackZoomEnd =
+    sorted.length > stackVisibleCount
+      ? Number(((stackVisibleCount / sorted.length) * 100).toFixed(2))
+      : 100;
+  const rateZoomEnd =
+    sorted.length > rateVisibleCount
+      ? Number(((rateVisibleCount / sorted.length) * 100).toFixed(2))
+      : 100;
   const overall = calcOverallAvailability(rows);
 
   CCH.renderChart("chartGauge", {
@@ -50,37 +63,75 @@ function drawAvailabilityCharts(rows) {
   CCH.renderChart("chartAvailabilityStack", {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
     legend: { data: ["成功调用", "失败调用"] },
-    grid: { left: 150, right: 20, top: 26, bottom: 18 },
+    grid: { left: 150, right: 34, top: 26, bottom: 22 },
     xAxis: { type: "value", name: "调用次数(次)" },
     yAxis: {
       type: "category",
       inverse: true,
-      data: topRows.map((x) => x.model),
+      data: sorted.map((x) => x.model),
       axisLabel: { width: 138, overflow: "truncate" },
     },
+    dataZoom:
+      sorted.length > stackVisibleCount
+        ? [
+            {
+              type: "inside",
+              yAxisIndex: 0,
+              start: 0,
+              end: stackZoomEnd,
+            },
+            {
+              type: "slider",
+              yAxisIndex: 0,
+              start: 0,
+              end: stackZoomEnd,
+              width: 10,
+              right: 10,
+            },
+          ]
+        : [],
     series: [
       {
         name: "成功调用",
         type: "bar",
         stack: "total",
         itemStyle: { color: "rgba(26,168,153,0.85)" },
-        data: topRows.map((x) => x.success_calls),
+        data: sorted.map((x) => x.success_calls),
       },
       {
         name: "失败调用",
         type: "bar",
         stack: "total",
         itemStyle: { color: "rgba(240,100,100,0.82)" },
-        data: topRows.map((x) => x.failed_calls),
+        data: sorted.map((x) => x.failed_calls),
       },
     ],
   });
 
   CCH.renderChart("chartAvailabilityRate", {
     tooltip: { trigger: "axis" },
-    grid: { left: 58, right: 24, top: 24, bottom: 30 },
-    xAxis: { type: "category", data: topRows.map((x) => x.model), axisLabel: { rotate: 30 } },
+    grid: { left: 58, right: 24, top: 24, bottom: 54 },
+    xAxis: { type: "category", data: sorted.map((x) => x.model), axisLabel: { rotate: 24 } },
     yAxis: { type: "value", min: 0, max: 100, name: "可用率(%)" },
+    dataZoom:
+      sorted.length > rateVisibleCount
+        ? [
+            {
+              type: "inside",
+              xAxisIndex: 0,
+              start: 0,
+              end: rateZoomEnd,
+            },
+            {
+              type: "slider",
+              xAxisIndex: 0,
+              start: 0,
+              end: rateZoomEnd,
+              bottom: 8,
+              height: 14,
+            },
+          ]
+        : [],
     visualMap: {
       show: false,
       min: 0,
@@ -93,15 +144,15 @@ function drawAvailabilityCharts(rows) {
         smooth: true,
         symbolSize: 8,
         lineStyle: { width: 3 },
-        data: topRows.map((x) => Number(x.availability_pct || 0)),
+        data: sorted.map((x) => Number(x.availability_pct || 0)),
       },
     ],
   });
 }
 
 function renderAvailabilityTable(rows) {
-  const html = rows
-    .slice(0, 30)
+  const sorted = getSortedAvailabilityRows(rows);
+  const html = sorted
     .map(
       (x) => `<tr>
       <td>${x.model}</td>
@@ -201,7 +252,9 @@ document.addEventListener("DOMContentLoaded", () => {
   CCH.initRangeControls(safeLoadAvailability);
   CCH.bindRefresh(safeLoadAvailability);
   document.getElementById("availabilitySort")?.addEventListener("change", () => {
-    if (availabilityRows.length) drawAvailabilityCharts(availabilityRows);
+    if (!availabilityRows.length) return;
+    drawAvailabilityCharts(availabilityRows);
+    renderAvailabilityTable(availabilityRows);
   });
   bindRealtimeWindowButtons();
   safeLoadAvailability();

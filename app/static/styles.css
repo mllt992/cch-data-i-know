@@ -378,6 +378,9 @@ button {
   margin-top: 8px;
   display: grid;
   gap: 8px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .rt-row {
