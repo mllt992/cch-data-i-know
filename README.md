@@ -56,6 +56,8 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 | `REFRESH_REALTIME_AVAILABILITY_SECONDS` | `900` | 实时可用性统计缓存刷新间隔（秒）。 |
 | `REFRESH_CHANNEL_SECONDS` | `900` | 渠道统计缓存刷新间隔（秒）。 |
 | `REFRESH_TOKEN_SECONDS` | `900` | Token 统计缓存刷新间隔（秒）。 |
+| `REFRESH_API_ENABLED` | `false` | 是否启用全量刷新接口（默认关闭）。 |
+| `REFRESH_API_AUTH_KEY` | 空 | 全量刷新接口鉴权 key，仅在启用刷新接口时生效。 |
 | `CHANNEL_NAME_COLUMN_OVERRIDE` | 空 | 强制指定“渠道名称字段名”，留空则自动识别。 |
 | `CHANNEL_ID_COLUMN_OVERRIDE` | 空 | 强制指定“渠道 ID 字段名”，留空则自动识别。 |
 | `CHANNEL_LOOKUP_TABLE_OVERRIDE` | 空 | 强制指定渠道字典表名，留空则自动识别。 |
@@ -80,6 +82,26 @@ KEY_CONFIGS=默认Key|sk-xxxxx;运营Key|sk-yyyyy
 ```
 
 `GET /api/config/keys` 同时返回 Key 页面可视化配置（自动刷新间隔、分页默认值、分页上限）。
+
+全量刷新接口配置示例（默认关闭）：
+
+```env
+REFRESH_API_ENABLED=true
+REFRESH_API_AUTH_KEY=replace-with-your-secret-key
+```
+
+调用方式（命中后会清空缓存并预热主要统计数据）：
+
+```bash
+curl -X POST "http://localhost:8000/api/admin/refresh-all" \
+  -H "X-Refresh-Key: replace-with-your-secret-key"
+```
+
+也支持 Query 参数：
+
+```bash
+curl -X POST "http://localhost:8000/api/admin/refresh-all?refresh_key=replace-with-your-secret-key"
+```
 
 渠道映射逻辑：
 - 优先直接使用渠道名称列。
@@ -184,6 +206,7 @@ docker compose up -d --build
 - `GET /api/stats/keys?slugs=slug1,slug2&records_page=1&records_page_size=20`
 - `GET /api/stats/key/{key_slug}?records_page=1&records_page_size=20`
 - `GET /api/stats/realtime-availability?window=today|7d|30d|all`
+- `POST /api/admin/refresh-all`（需在 `.env` 启用并携带刷新授权 key）
 
 说明：
 - `window=all` 时按“天”聚合，每个方格固定代表 1 天，最多查询最近 `REALTIME_AVAILABILITY_ALL_MAX_DAYS` 天（默认 120 天）。

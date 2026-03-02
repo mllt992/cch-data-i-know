@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     refresh_realtime_availability_seconds: int = 900
     refresh_channel_seconds: int = 900
     refresh_token_seconds: int = 900
+    refresh_api_enabled: bool = False
+    refresh_api_auth_key: str = ""
 
     channel_name_column_override: str | None = None
     channel_id_column_override: str | None = None

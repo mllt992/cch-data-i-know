@@ -50,6 +50,7 @@ class StatsService:
         self._schema: LogSchema | None = None
         self._schema_expires_at = 0.0
         self._schema_lock = asyncio.Lock()
+        self._refresh_lock = asyncio.Lock()
         self._cache: dict[str, CacheEntry] = {}
 
     def _resolve_realtime_window(self, window: str) -> tuple[str, datetime | None]:
@@ -255,6 +256,67 @@ class StatsService:
             "records_default_page_size": default_page_size,
             "records_max_page_size": max_page_size,
         }
+
+    async def refresh_all_data(self) -> dict[str, Any]:
+        async with self._refresh_lock:
+            cleared_cache_entries = len(self._cache)
+            self._cache.clear()
+            self._schema = None
+            self._schema_expires_at = 0.0
+
+            time_range = self.resolve_time_range()
+            warmup_tasks: list[tuple[str, Callable[[], Awaitable[Any]]]] = [
+                ("dashboard_default_range", lambda: self.get_dashboard(time_range)),
+                ("realtime_availability_today", lambda: self.get_realtime_availability("today")),
+                ("realtime_availability_7d", lambda: self.get_realtime_availability("7d")),
+                ("realtime_availability_30d", lambda: self.get_realtime_availability("30d")),
+                ("realtime_availability_all", lambda: self.get_realtime_availability("all")),
+            ]
+            if settings.configured_keys:
+                warmup_tasks.append(
+                    (
+                        "keys_aggregate_default_range",
+                        lambda: self.get_keys_usage(
+                            None,
+                            time_range,
+                            records_page=1,
+                            records_page_size=None,
+                        ),
+                    )
+                )
+                for item in settings.configured_keys:
+                    warmup_tasks.append(
+                        (
+                            f"key_{item.slug}_default_range",
+                            lambda slug=item.slug: self.get_key_usage(
+                                slug,
+                                time_range,
+                                records_page=1,
+                                records_page_size=None,
+                            ),
+                        )
+                    )
+
+            warmup_results: list[dict[str, str]] = []
+            for task_name, task_loader in warmup_tasks:
+                try:
+                    await task_loader()
+                    warmup_results.append({"task": task_name, "status": "ok"})
+                except Exception as exc:
+                    warmup_results.append(
+                        {"task": task_name, "status": "error", "error": str(exc)}
+                    )
+
+            warmup_failed = sum(1 for item in warmup_results if item["status"] != "ok")
+            return {
+                "refreshed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "cleared_cache_entries": cleared_cache_entries,
+                "schema_cache_reset": True,
+                "warmup_total": len(warmup_results),
+                "warmup_success": len(warmup_results) - warmup_failed,
+                "warmup_failed": warmup_failed,
+                "warmup_results": warmup_results,
+            }
 
     def _resolve_configured_key(self, key_slug: str) -> ConfiguredKey:
         normalized_slug = key_slug.strip().lower()

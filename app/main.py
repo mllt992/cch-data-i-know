@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -179,6 +179,30 @@ async def get_configured_keys() -> dict:
             "keys": app.state.stats_service.list_configured_keys(),
             "visualization": app.state.stats_service.get_key_visualization_config(),
         }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/refresh-all")
+async def refresh_all_data(
+    refresh_key: str | None = Query(default=None),
+    x_refresh_key: str | None = Header(default=None, alias="X-Refresh-Key"),
+) -> dict:
+    if not settings.refresh_api_enabled:
+        raise HTTPException(status_code=403, detail="refresh api is disabled")
+
+    expected_key = settings.refresh_api_auth_key.strip()
+    if not expected_key:
+        raise HTTPException(status_code=500, detail="refresh api auth key is not configured")
+
+    provided_key = (x_refresh_key or refresh_key or "").strip()
+    if not provided_key:
+        raise HTTPException(status_code=401, detail="missing refresh key")
+    if provided_key != expected_key:
+        raise HTTPException(status_code=401, detail="invalid refresh key")
+
+    try:
+        return await app.state.stats_service.refresh_all_data()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
