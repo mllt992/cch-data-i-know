@@ -1,5 +1,15 @@
 # CCH Stats Dashboard
 
+![image-20260302194424442](./README.assets/image-20260302194424442.png)
+
+![image-20260302194505210](./README.assets/image-20260302194505210.png)
+
+![image-20260302194525309](./README.assets/image-20260302194525309.png)
+
+![image-20260302194544260](./README.assets/image-20260302194544260.png)
+
+
+
 FastAPI + PostgreSQL 的数据统计网站，支持：
 - 费用统计
 - 模型统计
