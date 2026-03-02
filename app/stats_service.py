@@ -87,15 +87,16 @@ class StatsService:
         self._cache: dict[str, CacheEntry] = {}
 
     def _resolve_realtime_window(self, window: str) -> tuple[str, datetime | None]:
-        now = datetime.now(timezone.utc)
+        now_cn = datetime.now(CN_TIMEZONE)
+        now_utc = now_cn.astimezone(timezone.utc)
         w = window.strip().lower()
         if w == "today":
-            start = datetime.combine(now.date(), dt_time.min, timezone.utc)
-            return "today", start
+            start_cn = datetime.combine(now_cn.date(), dt_time.min, CN_TIMEZONE)
+            return "today", start_cn.astimezone(timezone.utc)
         if w in {"7d", "7days", "week"}:
-            return "7d", now - timedelta(days=7)
+            return "7d", now_utc - timedelta(days=7)
         if w in {"30d", "30days", "month"}:
-            return "30d", now - timedelta(days=30)
+            return "30d", now_utc - timedelta(days=30)
         if w == "all":
             return "all", None
         raise ValueError("window must be one of: today, 7d, 30d, all.")
@@ -105,18 +106,27 @@ class StatsService:
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> TimeRange:
-        now = datetime.now(timezone.utc)
+        now_cn = datetime.now(CN_TIMEZONE)
+        now_utc = now_cn.astimezone(timezone.utc)
         default_days = max(settings.history_days, 1)
 
         if end_date is None:
-            end_dt = now
+            end_dt = now_utc
         else:
-            end_dt = datetime.combine(end_date + timedelta(days=1), dt_time.min, timezone.utc)
+            end_dt = datetime.combine(
+                end_date + timedelta(days=1),
+                dt_time.min,
+                CN_TIMEZONE,
+            ).astimezone(timezone.utc)
 
         if start_date is None:
             start_dt = end_dt - timedelta(days=default_days)
         else:
-            start_dt = datetime.combine(start_date, dt_time.min, timezone.utc)
+            start_dt = datetime.combine(
+                start_date,
+                dt_time.min,
+                CN_TIMEZONE,
+            ).astimezone(timezone.utc)
 
         if start_dt >= end_dt:
             raise ValueError("start_date must be earlier than end_date.")
