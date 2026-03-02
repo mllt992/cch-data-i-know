@@ -28,10 +28,7 @@ function getPathKeySlug() {
 }
 
 function fmtDateTime(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return CCH.formatDateTimeCN(value);
 }
 
 function toStatusTag(status) {
@@ -324,7 +321,7 @@ function setKeyMeta(data) {
   CCH.setText(
     "metaText",
     `Key: ${selectedKeys} | 数据源: ${source.table || "-"} | Key字段: ${source.request_key_col || "未识别"} | ` +
-      `统计范围: ${data.time_range?.start || "-"} 至 ${data.time_range?.end || "-"} | 更新时间: ${data.generated_at || "-"}`
+      `统计范围: ${CCH.formatDateCN(data.time_range?.start)} 至 ${CCH.formatDateCN(data.time_range?.end)} | 更新时间: ${CCH.formatDateTimeCN(data.generated_at)}`
   );
 }
 

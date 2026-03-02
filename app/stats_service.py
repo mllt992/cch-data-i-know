@@ -23,6 +23,39 @@ def _as_numeric(expr: str) -> str:
     )
 
 
+CN_TIMEZONE = timezone(timedelta(hours=8))
+
+
+def _as_cn_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(CN_TIMEZONE)
+
+
+def _format_cn_datetime(value: datetime | None) -> str | None:
+    converted = _as_cn_datetime(value)
+    if converted is None:
+        return None
+    return converted.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_cn_date(value: date | datetime | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        converted = _as_cn_datetime(value)
+        if converted is None:
+            return None
+        return converted.strftime("%Y-%m-%d")
+    return value.strftime("%Y-%m-%d")
+
+
+def _now_cn_datetime_str() -> str:
+    return datetime.now(timezone.utc).astimezone(CN_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @dataclass
 class CacheEntry:
     data: Any
@@ -309,7 +342,7 @@ class StatsService:
 
             warmup_failed = sum(1 for item in warmup_results if item["status"] != "ok")
             return {
-                "refreshed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "refreshed_at": _now_cn_datetime_str(),
                 "cleared_cache_entries": cleared_cache_entries,
                 "schema_cache_reset": True,
                 "warmup_total": len(warmup_results),
@@ -609,7 +642,7 @@ class StatsService:
         records_rows = await self.pool.fetch(records_sql, *params, effective_page_size, records_offset)
         payload["records"] = [
             {
-                "called_at": row["called_at"].isoformat() if row["called_at"] else None,
+                "called_at": _format_cn_datetime(row["called_at"]),
                 "model": row["model"],
                 "key_value": row["request_key_value"] or "",
                 "key_name": (
@@ -794,7 +827,7 @@ class StatsService:
                     "success_calls": int(row["success_calls"] or 0),
                     "failed_calls": int(row["failed_calls"] or 0),
                     "availability_pct": float(row["availability_pct"] or 0),
-                    "last_call_at": row["last_call_at"].isoformat() if row["last_call_at"] else None,
+                    "last_call_at": _format_cn_datetime(row["last_call_at"]),
                 }
                 for row in rows
             ]
@@ -967,8 +1000,8 @@ class StatsService:
                         "event_limit": event_limit,
                         "slot_count": all_max_days,
                         "slot_seconds": 86400,
-                        "start_at": capped_start.isoformat(),
-                        "end_at": now.isoformat(),
+                        "start_at": _format_cn_datetime(capped_start),
+                        "end_at": _format_cn_datetime(now),
                         "models": [],
                     }
                 if min_called_at.tzinfo is None:
@@ -1131,8 +1164,8 @@ class StatsService:
                 "event_limit": event_limit,
                 "slot_count": slot_count,
                 "slot_seconds": slot_seconds,
-                "start_at": effective_start.isoformat(),
-                "end_at": now.isoformat(),
+                "start_at": _format_cn_datetime(effective_start),
+                "end_at": _format_cn_datetime(now),
                 "global_max_slot_calls": global_max_slot_calls,
                 "models": models,
             }
@@ -1180,10 +1213,10 @@ class StatsService:
                     "slug": configured_key.slug,
                 }
             ]
-            payload["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            payload["generated_at"] = _now_cn_datetime_str()
             payload["time_range"] = {
-                "start": time_range.start.date().isoformat(),
-                "end": (time_range.end - timedelta(days=1)).date().isoformat(),
+                "start": _format_cn_date(time_range.start.date()),
+                "end": _format_cn_date((time_range.end - timedelta(days=1)).date()),
             }
             payload["source"] = {
                 "table": f"{schema.table_schema}.{schema.table_name}",
@@ -1219,10 +1252,10 @@ class StatsService:
                 records_page_size=records_page_size,
             )
             payload["keys"] = [{"name": item.name, "slug": item.slug} for item in selected_keys]
-            payload["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            payload["generated_at"] = _now_cn_datetime_str()
             payload["time_range"] = {
-                "start": time_range.start.date().isoformat(),
-                "end": (time_range.end - timedelta(days=1)).date().isoformat(),
+                "start": _format_cn_date(time_range.start.date()),
+                "end": _format_cn_date((time_range.end - timedelta(days=1)).date()),
             }
             payload["source"] = {
                 "table": f"{schema.table_schema}.{schema.table_name}",
@@ -1247,11 +1280,11 @@ class StatsService:
             self.get_token_usage(time_range),
         )
         return {
-            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "generated_at": _now_cn_datetime_str(),
             "window_days": time_range.days,
             "time_range": {
-                "start": time_range.start.date().isoformat(),
-                "end": (time_range.end - timedelta(days=1)).date().isoformat(),
+                "start": _format_cn_date(time_range.start.date()),
+                "end": _format_cn_date((time_range.end - timedelta(days=1)).date()),
             },
             "source": {
                 "table": f"{schema.table_schema}.{schema.table_name}",

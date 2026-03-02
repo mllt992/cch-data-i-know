@@ -160,7 +160,7 @@ function renderAvailabilityTable(rows) {
       <td>${CCH.fmtNumber(x.success_calls)} 次</td>
       <td>${CCH.fmtNumber(x.failed_calls)} 次</td>
       <td>${CCH.fmtPercent(x.availability_pct)}</td>
-      <td>${x.last_call_at || "-"}</td>
+      <td>${CCH.formatDateTimeCN(x.last_call_at)}</td>
     </tr>`
     )
     .join("");

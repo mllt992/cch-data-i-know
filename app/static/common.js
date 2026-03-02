@@ -2,6 +2,23 @@ const chartRegistry = new Map();
 let configuredKeysCache = null;
 let keyVisualizationConfigCache = null;
 let keyMenuLoadPromise = null;
+const CN_TIME_ZONE = "Asia/Shanghai";
+const CN_DATE_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: CN_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const CN_DATETIME_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: CN_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
 
 function fmtNumber(value) {
   return Number(value || 0).toLocaleString();
@@ -41,6 +58,60 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function toDateObject(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getDateParts(formatter, dateObj) {
+  const partMap = {};
+  formatter.formatToParts(dateObj).forEach((part) => {
+    if (part.type === "literal") return;
+    partMap[part.type] = part.value;
+  });
+  return partMap;
+}
+
+function formatMonthCN(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  const normalized = text.replace(/\//g, "-");
+  const mm = normalized.match(/^(\d{4})-(\d{1,2})$/);
+  if (mm) return `${mm[1]}-${mm[2].padStart(2, "0")}`;
+  const dateObj = toDateObject(text);
+  if (!dateObj) return text;
+  const parts = getDateParts(CN_DATE_FORMATTER, dateObj);
+  return `${parts.year}-${parts.month}`;
+}
+
+function formatDateCN(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  const normalized = text.replace(/\//g, "-");
+  const ymd = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
+  const dateObj = toDateObject(text);
+  if (!dateObj) return text;
+  const parts = getDateParts(CN_DATE_FORMATTER, dateObj);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function formatDateTimeCN(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)) return text;
+  const dateObj = toDateObject(text);
+  if (!dateObj) return text;
+  const parts = getDateParts(CN_DATETIME_FORMATTER, dateObj);
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 function toDateInputValue(dateObj) {
@@ -273,8 +344,8 @@ function setMetaFromDashboard(data) {
   setText(
     "metaText",
     `\u6570\u636e\u6e90: ${source.table || "-"} | \u6e20\u9053\u540d\u79f0\u5217: ${channelSource} | ` +
-      `\u7edf\u8ba1\u8303\u56f4: ${data.time_range?.start || "-"} \u81f3 ${data.time_range?.end || "-"} | ` +
-      `\u66f4\u65b0\u65f6\u95f4: ${data.generated_at || "-"}`
+      `\u7edf\u8ba1\u8303\u56f4: ${formatDateCN(data.time_range?.start)} \u81f3 ${formatDateCN(data.time_range?.end)} | ` +
+      `\u66f4\u65b0\u65f6\u95f4: ${formatDateTimeCN(data.generated_at)}`
   );
 }
 
@@ -286,6 +357,9 @@ window.CCH = {
   fetchConfiguredKeys,
   fetchKeyVisualizationConfig,
   fetchJson,
+  formatDateCN,
+  formatDateTimeCN,
+  formatMonthCN,
   fmtMoney,
   fmtNumber,
   fmtPercent,
