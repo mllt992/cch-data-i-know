@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CCH 数据统计平台 - 模型使用</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Noto+Sans+SC:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  </head>
+  <body data-page="models">
+    <div class="decor decor-1"></div>
+    <div class="decor decor-2"></div>
+    <div class="shell fade-in">
+      <aside class="sidebar panel">
+        <div class="brand">
+          <small>CCH Analytics</small>
+          <h1>数据统计平台</h1>
+        </div>
+        <nav class="menu">
+          <a href="/" data-page="overview">首页总览</a>
+          <a href="/availability" data-page="availability">模型可用性</a>
+          <a href="/channels" data-page="channels">渠道数据分析</a>
+          <a href="/tokens" data-page="tokens">Token 使用分析</a>
+          <a href="/models" data-page="models">模型使用情况</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="topbar panel">
+          <div>
+            <h2>模型使用情况分析</h2>
+            <p>模型调用、费用、Token 与成功率的交叉分析</p>
+          </div>
+          <div class="btn-row">
+            <button id="refreshBtn" class="btn-primary">刷新数据</button>
+          </div>
+        </section>
+
+        <section class="range-panel panel">
+          <div class="range-grid">
+            <label class="field">
+              <span>开始日期</span>
+              <input id="startDate" type="date" />
+            </label>
+            <label class="field">
+              <span>结束日期</span>
+              <input id="endDate" type="date" />
+            </label>
+            <div class="btn-row">
+              <button id="applyRangeBtn" class="btn-primary">应用时间段</button>
+              <button id="resetRangeBtn" class="btn-ghost">默认近30天</button>
+            </div>
+          </div>
+          <div id="metaText" class="meta">正在加载数据...</div>
+        </section>
+
+        <section class="kpi-grid">
+          <article class="kpi panel">
+            <h3>模型数</h3>
+            <p id="kpiModelCount">-</p>
+          </article>
+          <article class="kpi panel">
+            <h3>总调用</h3>
+            <p id="kpiModelCalls">-</p>
+          </article>
+          <article class="kpi panel">
+            <h3>总费用</h3>
+            <p id="kpiModelCost">-</p>
+          </article>
+          <article class="kpi panel">
+            <h3>平均成功率</h3>
+            <p id="kpiModelSuccess">-</p>
+          </article>
+        </section>
+
+        <section class="grid-12">
+          <article class="chart-card panel col-12">
+            <div class="chart-head">
+              <h3>模型调用与成功率</h3>
+              <select id="modelSort" class="sort-select">
+                <option value="desc">调用量: 高到低</option>
+                <option value="asc">调用量: 低到高</option>
+              </select>
+            </div>
+            <div id="chartModelCombo" class="chart"></div>
+          </article>
+          <article class="chart-card panel col-6">
+            <div class="chart-head">
+              <h3>模型费用分布</h3>
+              <span>Top 12</span>
+            </div>
+            <div id="chartModelCost" class="chart"></div>
+          </article>
+          <article class="chart-card panel col-6">
+            <div class="chart-head">
+              <h3>模型费用-Token 关系</h3>
+              <span>气泡大小代表调用量</span>
+            </div>
+            <div id="chartModelScatter" class="chart"></div>
+          </article>
+          <article class="chart-card panel col-12">
+            <div class="chart-head">
+              <h3>模型使用明细</h3>
+              <span>按调用量排序</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>模型</th>
+                    <th>调用次数</th>
+                    <th>费用</th>
+                    <th>Token</th>
+                    <th>成功率</th>
+                  </tr>
+                </thead>
+                <tbody id="modelTbody"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script src="/static/common.js"></script>
+    <script src="/static/page-models.js"></script>
+  </body>
+</html>
