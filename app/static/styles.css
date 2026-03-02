@@ -429,6 +429,9 @@ button {
   height: 10px;
   border-radius: 3px;
   display: inline-block;
+  border: 1px solid rgba(20, 84, 152, 0.22);
+  background-clip: padding-box;
+  transition: opacity 0.15s ease;
 }
 
 .chart {

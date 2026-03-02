@@ -542,10 +542,18 @@ class StatsService:
             success_expr = self._success_expr(schema)
             model_limit = max(settings.realtime_availability_model_limit, 1)
             event_limit = max(settings.realtime_availability_event_limit, 1)
+            all_max_days = max(settings.realtime_availability_all_max_days, 1)
             effective_start = start_time
             now = datetime.now(timezone.utc)
+            slot_count = event_limit
+            slot_seconds = 0
 
-            if effective_start is None:
+            if normalized_window == "all":
+                capped_start = datetime.combine(
+                    (now - timedelta(days=all_max_days - 1)).date(),
+                    dt_time.min,
+                    timezone.utc,
+                )
                 min_sql = f"SELECT MIN({ts}) AS min_called_at FROM {table}"
                 min_row = await self.pool.fetchrow(min_sql)
                 min_called_at = min_row["min_called_at"] if min_row else None
@@ -553,18 +561,27 @@ class StatsService:
                     return {
                         "window": normalized_window,
                         "event_limit": event_limit,
-                        "slot_count": event_limit,
-                        "slot_seconds": 0,
-                        "start_at": None,
+                        "slot_count": all_max_days,
+                        "slot_seconds": 86400,
+                        "start_at": capped_start.isoformat(),
                         "end_at": now.isoformat(),
                         "models": [],
                     }
                 if min_called_at.tzinfo is None:
                     min_called_at = min_called_at.replace(tzinfo=timezone.utc)
-                effective_start = min_called_at
-
-            range_seconds = max(int((now - effective_start).total_seconds()), 1)
-            slot_seconds = max(math.ceil(range_seconds / event_limit), 1)
+                min_data_day_start = datetime.combine(
+                    min_called_at.date(),
+                    dt_time.min,
+                    timezone.utc,
+                )
+                effective_start = max(capped_start, min_data_day_start)
+                slot_seconds = 86400
+                slot_count = max((now.date() - effective_start.date()).days + 1, 1)
+            else:
+                if effective_start is None:
+                    effective_start = datetime.combine(now.date(), dt_time.min, timezone.utc)
+                range_seconds = max(int((now - effective_start).total_seconds()), 1)
+                slot_seconds = max(math.ceil(range_seconds / slot_count), 1)
 
             sql = f"""
                 WITH base AS (
@@ -606,23 +623,22 @@ class StatsService:
                     SELECT
                         model,
                         slot_index,
-                        BOOL_OR(status = 'failed') AS has_failed,
-                        BOOL_OR(status = 'success') AS has_success,
-                        BOOL_OR(status = 'other') AS has_other
+                        SUM((status = 'success')::int)::int AS success_calls,
+                        SUM((status = 'failed')::int)::int AS failed_calls,
+                        SUM((status = 'other')::int)::int AS other_calls,
+                        COUNT(*)::int AS slot_total_calls
                     FROM bucket_events
                     GROUP BY model, slot_index
                 ),
                 series AS (
                     SELECT
                         tm.model,
-                        tm.total_calls,
+                        tm.total_calls AS model_total_calls,
                         s.slot_index,
-                        CASE
-                            WHEN bk.has_failed IS TRUE THEN 'failed'
-                            WHEN bk.has_success IS TRUE THEN 'success'
-                            WHEN bk.has_other IS TRUE THEN 'other'
-                            ELSE 'empty'
-                        END AS status
+                        COALESCE(bk.success_calls, 0)::int AS success_calls,
+                        COALESCE(bk.failed_calls, 0)::int AS failed_calls,
+                        COALESCE(bk.other_calls, 0)::int AS other_calls,
+                        COALESCE(bk.slot_total_calls, 0)::int AS slot_total_calls
                     FROM top_models tm
                     CROSS JOIN generate_series(0, $3 - 1) AS s(slot_index)
                     LEFT JOIN bucketed bk
@@ -631,40 +647,89 @@ class StatsService:
                 )
                 SELECT
                     model,
-                    MAX(total_calls)::bigint AS total_calls,
-                    ARRAY_AGG(status ORDER BY slot_index ASC) AS statuses
+                    MAX(model_total_calls)::bigint AS total_calls,
+                    ARRAY_AGG(success_calls ORDER BY slot_index ASC) AS success_series,
+                    ARRAY_AGG(failed_calls ORDER BY slot_index ASC) AS failed_series,
+                    ARRAY_AGG(other_calls ORDER BY slot_index ASC) AS other_series,
+                    ARRAY_AGG(slot_total_calls ORDER BY slot_index ASC) AS total_series
                 FROM series
                 GROUP BY model
-                ORDER BY MAX(total_calls) DESC, model ASC
+                ORDER BY MAX(model_total_calls) DESC, model ASC
             """
             rows = await self.pool.fetch(
                 sql,
                 effective_start,
                 model_limit,
-                event_limit,
+                slot_count,
                 slot_seconds,
             )
 
             models = []
+            global_max_slot_calls = 0
             for row in rows:
-                statuses = list(row["statuses"] or [])
-                if not statuses:
+                success_series = list(row["success_series"] or [])
+                failed_series = list(row["failed_series"] or [])
+                other_series = list(row["other_series"] or [])
+                total_series = list(row["total_series"] or [])
+                slot_len = max(
+                    len(success_series),
+                    len(failed_series),
+                    len(other_series),
+                    len(total_series),
+                )
+                if not slot_len:
                     continue
+
+                slots: list[dict[str, int]] = []
+                statuses: list[str] = []
+                model_max_slot_calls = 0
+                for i in range(slot_len):
+                    success_calls = int(success_series[i] if i < len(success_series) else 0)
+                    failed_calls = int(failed_series[i] if i < len(failed_series) else 0)
+                    other_calls = int(other_series[i] if i < len(other_series) else 0)
+                    total_calls = int(total_series[i] if i < len(total_series) else 0)
+                    if total_calls <= 0:
+                        total_calls = success_calls + failed_calls + other_calls
+
+                    model_max_slot_calls = max(model_max_slot_calls, total_calls)
+                    slots.append(
+                        {
+                            "success_calls": success_calls,
+                            "failed_calls": failed_calls,
+                            "other_calls": other_calls,
+                            "total_calls": total_calls,
+                        }
+                    )
+                    if total_calls <= 0:
+                        statuses.append("empty")
+                    elif failed_calls > 0:
+                        statuses.append("failed")
+                    elif success_calls > 0:
+                        statuses.append("success")
+                    elif other_calls > 0:
+                        statuses.append("other")
+                    else:
+                        statuses.append("empty")
+
+                global_max_slot_calls = max(global_max_slot_calls, model_max_slot_calls)
                 models.append(
                     {
                         "model": row["model"],
                         "total_calls": int(row["total_calls"] or 0),
                         "statuses": statuses,
+                        "slots": slots,
+                        "max_slot_calls": model_max_slot_calls,
                     }
                 )
 
             return {
                 "window": normalized_window,
                 "event_limit": event_limit,
-                "slot_count": event_limit,
+                "slot_count": slot_count,
                 "slot_seconds": slot_seconds,
                 "start_at": effective_start.isoformat(),
                 "end_at": now.isoformat(),
+                "global_max_slot_calls": global_max_slot_calls,
                 "models": models,
             }
 

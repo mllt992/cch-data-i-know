@@ -167,13 +167,6 @@ function renderAvailabilityTable(rows) {
   document.getElementById("availabilityTbody").innerHTML = html;
 }
 
-function statusClass(status) {
-  if (status === "success") return "rt-cell rt-ok";
-  if (status === "failed") return "rt-cell rt-fail";
-  if (status === "empty") return "rt-cell rt-empty";
-  return "rt-cell rt-other";
-}
-
 function formatSlotDuration(seconds) {
   const sec = Number(seconds || 0);
   if (!sec) return "-";
@@ -183,6 +176,62 @@ function formatSlotDuration(seconds) {
   return `${Math.round(sec / 86400)}天`;
 }
 
+function normalizeSlot(slot) {
+  if (slot && typeof slot === "object" && !Array.isArray(slot)) {
+    const successCalls = Number(slot.success_calls || 0);
+    const failedCalls = Number(slot.failed_calls || 0);
+    const otherCalls = Number(slot.other_calls || 0);
+    const totalCalls = Math.max(
+      Number(slot.total_calls || 0),
+      successCalls + failedCalls + otherCalls
+    );
+    return { successCalls, failedCalls, otherCalls, totalCalls };
+  }
+  const status = String(slot || "empty");
+  if (status === "success") return { successCalls: 1, failedCalls: 0, otherCalls: 0, totalCalls: 1 };
+  if (status === "failed") return { successCalls: 0, failedCalls: 1, otherCalls: 0, totalCalls: 1 };
+  if (status === "other") return { successCalls: 0, failedCalls: 0, otherCalls: 1, totalCalls: 1 };
+  return { successCalls: 0, failedCalls: 0, otherCalls: 0, totalCalls: 0 };
+}
+
+function calcCellVisual(slot, maxSlotCalls) {
+  const total = Number(slot.totalCalls || 0);
+  if (!total) {
+    return {
+      className: "rt-cell rt-empty",
+      style: "",
+      title: "无调用",
+    };
+  }
+
+  const parts = [
+    { key: "success", value: Number(slot.successCalls || 0), color: "#1aa899" },
+    { key: "failed", value: Number(slot.failedCalls || 0), color: "#f06464" },
+    { key: "other", value: Number(slot.otherCalls || 0), color: "#f2bf53" },
+  ].filter((x) => x.value > 0);
+
+  let background = "#1aa899";
+  if (parts.length === 1) {
+    background = parts[0].color;
+  } else {
+    let start = 0;
+    const segments = parts.map((x, idx) => {
+      const end = idx === parts.length - 1 ? 360 : start + (x.value / total) * 360;
+      const seg = `${x.color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
+      start = end;
+      return seg;
+    });
+    background = `conic-gradient(${segments.join(",")})`;
+  }
+
+  const ratio = maxSlotCalls > 0 ? Math.min(total / maxSlotCalls, 1) : 1;
+  const opacity = 0.28 + Math.pow(ratio, 0.65) * 0.72;
+  const borderAlpha = 0.18 + Math.pow(ratio, 0.7) * 0.32;
+  const style = `background:${background};opacity:${opacity.toFixed(3)};border-color:rgba(20,84,152,${borderAlpha.toFixed(3)});`;
+  const title = `成功 ${slot.successCalls} | 失败 ${slot.failedCalls} | 其他 ${slot.otherCalls} | 总计 ${slot.totalCalls}`;
+  return { className: "rt-cell", style, title };
+}
+
 function renderRealtimeGrid(models) {
   const container = document.getElementById("realtimeGrid");
   if (!models.length) {
@@ -190,10 +239,21 @@ function renderRealtimeGrid(models) {
     return;
   }
 
-  const rowsHtml = models
+  const normalizedModels = models.map((model) => {
+    const rawSlots = Array.isArray(model.slots) && model.slots.length ? model.slots : model.statuses || [];
+    const slots = rawSlots.map(normalizeSlot);
+    const maxSlotCalls = slots.reduce((m, s) => Math.max(m, Number(s.totalCalls || 0)), 0);
+    return { ...model, slots, maxSlotCalls };
+  });
+  const globalMaxSlotCalls = normalizedModels.reduce((m, x) => Math.max(m, x.maxSlotCalls || 0), 0);
+
+  const rowsHtml = normalizedModels
     .map((model) => {
-      const cells = (model.statuses || [])
-        .map((status) => `<i class="${statusClass(status)}"></i>`)
+      const cells = (model.slots || [])
+        .map((slot) => {
+          const visual = calcCellVisual(slot, globalMaxSlotCalls);
+          return `<i class="${visual.className}" style="${visual.style}" title="${visual.title}"></i>`;
+        })
         .join("");
       return `
         <div class="rt-row">
@@ -222,7 +282,8 @@ async function loadRealtimeAvailability() {
   hintEl.textContent =
     `时间窗口: ${windowLabel(data.window)} | ` +
     `每模型 ${data.slot_count || data.event_limit} 个时间格 | ` +
-    `每格约 ${formatSlotDuration(data.slot_seconds)}`;
+    `每格约 ${formatSlotDuration(data.slot_seconds)} | ` +
+    `色块占比=状态构成，深浅=调用密度`;
 }
 
 async function loadAvailability() {

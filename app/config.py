@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     realtime_availability_model_limit: int = 30
     realtime_availability_event_limit: int = 120
+    realtime_availability_all_max_days: int = 120
 
     cors_origins: str = "*"
 

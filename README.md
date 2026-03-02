@@ -42,6 +42,7 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 
 - `REALTIME_AVAILABILITY_MODEL_LIMIT`
 - `REALTIME_AVAILABILITY_EVENT_LIMIT`
+- `REALTIME_AVAILABILITY_ALL_MAX_DAYS`
 
 - `CHANNEL_NAME_COLUMN_OVERRIDE`
 - `CHANNEL_ID_COLUMN_OVERRIDE`
@@ -85,6 +86,9 @@ docker compose up -d --build
 - `GET /api/stats/channel`
 - `GET /api/stats/token`
 - `GET /api/stats/realtime-availability?window=today|7d|30d|all`
+
+说明：
+- `window=all` 时按“天”聚合，每个方格固定代表 1 天，最多查询最近 `REALTIME_AVAILABILITY_ALL_MAX_DAYS` 天（默认 120 天）。
 
 通用时间参数（统计 API 支持）：
 - `start_date=YYYY-MM-DD`
