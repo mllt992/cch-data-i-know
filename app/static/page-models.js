@@ -71,6 +71,7 @@ function drawModelCharts(rows) {
     xAxis: { type: "value", name: "\u8d39\u7528" },
     yAxis: {
       type: "category",
+      inverse: true,
       data: topRows.map((x) => x.model),
       axisLabel: { width: 132, overflow: "truncate" },
     },

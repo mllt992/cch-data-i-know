@@ -54,6 +54,7 @@ function drawAvailabilityCharts(rows) {
     xAxis: { type: "value", name: "调用次数(次)" },
     yAxis: {
       type: "category",
+      inverse: true,
       data: topRows.map((x) => x.model),
       axisLabel: { width: 138, overflow: "truncate" },
     },

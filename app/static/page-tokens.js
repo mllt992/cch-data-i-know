@@ -64,6 +64,7 @@ function drawTokenCharts(tokenUsage) {
     xAxis: { type: "value", name: "Token(M)" },
     yAxis: {
       type: "category",
+      inverse: true,
       data: byModel.map((x) => x.model),
       axisLabel: { width: 130, overflow: "truncate" },
     },

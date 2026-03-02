@@ -30,6 +30,7 @@ function drawChannelCharts(rows) {
     xAxis: { type: "value" },
     yAxis: {
       type: "category",
+      inverse: true,
       data: topRows.map((x) => normalizeChannelName(x.channel)),
       axisLabel: { width: 140, overflow: "truncate" },
     },

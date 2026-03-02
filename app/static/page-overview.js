@@ -51,6 +51,7 @@ function drawOverviewCharts(data) {
     xAxis: { type: "value" },
     yAxis: {
       type: "category",
+      inverse: true,
       data: modelUsage.map((x) => x.model),
       axisLabel: { width: 130, overflow: "truncate" },
     },
