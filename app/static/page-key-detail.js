@@ -410,7 +410,7 @@ async function initVisualConfig() {
   resetAutoRefreshTimer();
 }
 
-async function loadKeyDetailPage() {
+async function loadKeyDetailPage(forceRefresh = false) {
   updateTitleWithSelection();
   if (!selectedKeySlugs.length) {
     CCH.setText("metaText", "请先选择至少一个 key。");
@@ -428,7 +428,8 @@ async function loadKeyDetailPage() {
   const slugParam = selectedKeySlugs.join(",");
   const data = await CCH.fetchJson(
     `/api/stats/keys?slugs=${encodeURIComponent(slugParam)}&records_page=${recordsPage}&records_page_size=${recordsPageSize}`,
-    range
+    range,
+    { forceRefresh }
   );
   keyData = data || {};
   recordsPage = Number(keyData?.records_pagination?.page || recordsPage);
@@ -439,9 +440,9 @@ async function loadKeyDetailPage() {
   setKeyMeta(keyData);
 }
 
-async function safeLoadKeyDetailPage() {
+async function safeLoadKeyDetailPage(forceRefresh = false) {
   try {
-    await loadKeyDetailPage();
+    await loadKeyDetailPage(forceRefresh);
   } catch (e) {
     CCH.setText("metaText", `数据加载失败: ${e.message}`);
   }

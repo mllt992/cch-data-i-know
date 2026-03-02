@@ -270,10 +270,13 @@ function renderRealtimeGrid(models) {
   container.innerHTML = rowsHtml;
 }
 
-async function loadRealtimeAvailability() {
+async function loadRealtimeAvailability(forceRefresh = false) {
   const hintEl = document.getElementById("realtimeHint");
   hintEl.textContent = "正在加载实时可用性...";
-  const res = await fetch(`/api/stats/realtime-availability?window=${encodeURIComponent(realtimeWindow)}`);
+  const params = new URLSearchParams();
+  params.set("window", realtimeWindow);
+  if (forceRefresh) params.set("force_refresh", "1");
+  const res = await fetch(`/api/stats/realtime-availability?${params.toString()}`);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
@@ -286,10 +289,10 @@ async function loadRealtimeAvailability() {
     `色块占比=状态构成，深浅=调用密度`;
 }
 
-async function loadAvailability() {
+async function loadAvailability(forceRefresh = false) {
   const range = CCH.getRange();
   CCH.setText("metaText", "正在加载模型可用性数据...");
-  const data = await CCH.fetchJson("/api/dashboard", range);
+  const data = await CCH.fetchJson("/api/dashboard", range, { forceRefresh });
   availabilityRows = data.model_availability || [];
   fillAvailabilityKpi(availabilityRows);
   drawAvailabilityCharts(availabilityRows);
@@ -297,9 +300,9 @@ async function loadAvailability() {
   CCH.setMetaFromDashboard(data);
 }
 
-async function safeLoadAvailability() {
+async function safeLoadAvailability(forceRefresh = false) {
   try {
-    await Promise.all([loadAvailability(), loadRealtimeAvailability()]);
+    await Promise.all([loadAvailability(forceRefresh), loadRealtimeAvailability(forceRefresh)]);
   } catch (e) {
     CCH.setText("metaText", `数据加载失败: ${e.message}`);
     document.getElementById("realtimeHint").textContent = `实时可用性加载失败: ${e.message}`;

@@ -145,6 +145,7 @@ class StatsService:
         key: str,
         ttl_seconds: int,
         loader: Callable[[], Awaitable[Any]],
+        force_refresh: bool = False,
     ) -> Any:
         now = time.time()
         entry = self._cache.get(key)
@@ -152,12 +153,12 @@ class StatsService:
             entry = CacheEntry(data=None, expires_at=0.0, lock=asyncio.Lock())
             self._cache[key] = entry
 
-        if entry.data is not None and now < entry.expires_at:
+        if not force_refresh and entry.data is not None and now < entry.expires_at:
             return entry.data
 
         async with entry.lock:
             now = time.time()
-            if entry.data is not None and now < entry.expires_at:
+            if not force_refresh and entry.data is not None and now < entry.expires_at:
                 return entry.data
             try:
                 entry.data = await loader()
@@ -677,7 +678,11 @@ class StatsService:
         }
         return payload
 
-    async def get_cost_overview(self, time_range: TimeRange) -> dict[str, Any]:
+    async def get_cost_overview(
+        self,
+        time_range: TimeRange,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
         async def loader() -> dict[str, Any]:
             schema = await self._get_schema()
             table = self._table_ref(schema)
@@ -719,9 +724,18 @@ class StatsService:
             }
 
         key = f"cost_overview::{time_range.key}"
-        return await self._cached(key, settings.refresh_cost_seconds, loader)
+        return await self._cached(
+            key,
+            settings.refresh_cost_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
-    async def get_model_usage(self, time_range: TimeRange) -> list[dict[str, Any]]:
+    async def get_model_usage(
+        self,
+        time_range: TimeRange,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
         async def loader() -> list[dict[str, Any]]:
             schema = await self._get_schema()
             table = self._table_ref(schema)
@@ -760,9 +774,18 @@ class StatsService:
             ]
 
         key = f"model_usage::{time_range.key}"
-        return await self._cached(key, settings.refresh_model_seconds, loader)
+        return await self._cached(
+            key,
+            settings.refresh_model_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
-    async def get_call_trend(self, time_range: TimeRange) -> list[dict[str, Any]]:
+    async def get_call_trend(
+        self,
+        time_range: TimeRange,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
         async def loader() -> list[dict[str, Any]]:
             schema = await self._get_schema()
             table = self._table_ref(schema)
@@ -790,9 +813,18 @@ class StatsService:
             ]
 
         key = f"call_trend::{time_range.key}"
-        return await self._cached(key, settings.refresh_call_seconds, loader)
+        return await self._cached(
+            key,
+            settings.refresh_call_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
-    async def get_model_availability(self, time_range: TimeRange) -> list[dict[str, Any]]:
+    async def get_model_availability(
+        self,
+        time_range: TimeRange,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
         async def loader() -> list[dict[str, Any]]:
             schema = await self._get_schema()
             table = self._table_ref(schema)
@@ -833,9 +865,18 @@ class StatsService:
             ]
 
         key = f"model_availability::{time_range.key}"
-        return await self._cached(key, settings.refresh_availability_seconds, loader)
+        return await self._cached(
+            key,
+            settings.refresh_availability_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
-    async def get_channel_usage(self, time_range: TimeRange) -> list[dict[str, Any]]:
+    async def get_channel_usage(
+        self,
+        time_range: TimeRange,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
         async def loader() -> list[dict[str, Any]]:
             schema = await self._get_schema()
             table = self._table_ref(schema)
@@ -963,11 +1004,17 @@ class StatsService:
             ]
 
         key = f"channel_usage::{time_range.key}"
-        return await self._cached(key, settings.refresh_channel_seconds, loader)
+        return await self._cached(
+            key,
+            settings.refresh_channel_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
     async def get_realtime_availability(
         self,
         window: Literal["today", "7d", "30d", "all"] | str = "7d",
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
         normalized_window, start_time = self._resolve_realtime_window(window)
 
@@ -1175,14 +1222,24 @@ class StatsService:
             key,
             settings.refresh_realtime_availability_seconds,
             loader,
+            force_refresh=force_refresh,
         )
 
-    async def get_token_usage(self, time_range: TimeRange) -> dict[str, Any]:
+    async def get_token_usage(
+        self,
+        time_range: TimeRange,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
         async def loader() -> dict[str, Any]:
             return await self._load_token_usage_payload(time_range)
 
         key = f"token_usage::{time_range.key}"
-        return await self._cached(key, settings.refresh_token_seconds, loader)
+        return await self._cached(
+            key,
+            settings.refresh_token_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
     async def get_key_usage(
         self,
@@ -1190,6 +1247,7 @@ class StatsService:
         time_range: TimeRange,
         records_page: int = 1,
         records_page_size: int | None = None,
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
         configured_key = self._resolve_configured_key(key_slug)
 
@@ -1228,7 +1286,12 @@ class StatsService:
             f"key_usage::{configured_key.slug}::{time_range.key}"
             f"::p{records_page}::s{records_page_size or 0}"
         )
-        return await self._cached(cache_key, settings.refresh_token_seconds, loader)
+        return await self._cached(
+            cache_key,
+            settings.refresh_token_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
     async def get_keys_usage(
         self,
@@ -1236,6 +1299,7 @@ class StatsService:
         time_range: TimeRange,
         records_page: int = 1,
         records_page_size: int | None = None,
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
         selected_keys = self._resolve_configured_keys(key_slugs)
         value_to_name = {item.value: item.name for item in selected_keys}
@@ -1267,17 +1331,26 @@ class StatsService:
             f"keys_usage::{','.join(sorted(selected_slugs))}::{time_range.key}"
             f"::p{records_page}::s{records_page_size or 0}"
         )
-        return await self._cached(cache_key, settings.refresh_token_seconds, loader)
+        return await self._cached(
+            cache_key,
+            settings.refresh_token_seconds,
+            loader,
+            force_refresh=force_refresh,
+        )
 
-    async def get_dashboard(self, time_range: TimeRange) -> dict[str, Any]:
+    async def get_dashboard(
+        self,
+        time_range: TimeRange,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
         schema = await self._get_schema()
         cost, model, trend, availability, channel, token = await asyncio.gather(
-            self.get_cost_overview(time_range),
-            self.get_model_usage(time_range),
-            self.get_call_trend(time_range),
-            self.get_model_availability(time_range),
-            self.get_channel_usage(time_range),
-            self.get_token_usage(time_range),
+            self.get_cost_overview(time_range, force_refresh=force_refresh),
+            self.get_model_usage(time_range, force_refresh=force_refresh),
+            self.get_call_trend(time_range, force_refresh=force_refresh),
+            self.get_model_availability(time_range, force_refresh=force_refresh),
+            self.get_channel_usage(time_range, force_refresh=force_refresh),
+            self.get_token_usage(time_range, force_refresh=force_refresh),
         )
         return {
             "generated_at": _now_cn_datetime_str(),

@@ -103,10 +103,10 @@ function renderModelTable(rows) {
   document.getElementById("modelTbody").innerHTML = html;
 }
 
-async function loadModelPage() {
+async function loadModelPage(forceRefresh = false) {
   const range = CCH.getRange();
   CCH.setText("metaText", "\u6b63\u5728\u52a0\u8f7d\u6a21\u578b\u4f7f\u7528\u5206\u6790\u6570\u636e...");
-  const data = await CCH.fetchJson("/api/dashboard", range);
+  const data = await CCH.fetchJson("/api/dashboard", range, { forceRefresh });
   modelRows = data.model_usage || [];
   fillModelKpi(modelRows);
   drawModelCharts(modelRows);
@@ -114,9 +114,9 @@ async function loadModelPage() {
   CCH.setMetaFromDashboard(data);
 }
 
-async function safeLoadModels() {
+async function safeLoadModels(forceRefresh = false) {
   try {
-    await loadModelPage();
+    await loadModelPage(forceRefresh);
   } catch (e) {
     CCH.setText("metaText", `\u6570\u636e\u52a0\u8f7d\u5931\u8d25: ${e.message}`);
   }

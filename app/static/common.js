@@ -154,15 +154,16 @@ function validateRange(range) {
   return range.start <= range.end;
 }
 
-function rangeToQuery(range) {
+function rangeToQuery(range, options = {}) {
   const params = new URLSearchParams();
   if (range.start) params.set("start_date", range.start);
   if (range.end) params.set("end_date", range.end);
+  if (options.forceRefresh) params.set("force_refresh", "1");
   return params.toString();
 }
 
-async function fetchJson(path, range) {
-  const query = rangeToQuery(range);
+async function fetchJson(path, range, options = {}) {
+  const query = rangeToQuery(range, options);
   const url = query ? `${path}${path.includes("?") ? "&" : "?"}${query}` : path;
   const res = await fetch(url);
   if (!res.ok) {
@@ -331,7 +332,7 @@ function initRangeControls(onApply) {
 function bindRefresh(onRefresh) {
   const btn = document.getElementById("refreshBtn");
   if (!btn) return;
-  btn.addEventListener("click", () => onRefresh());
+  btn.addEventListener("click", () => onRefresh(true));
 }
 
 function setMetaFromDashboard(data) {

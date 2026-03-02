@@ -95,18 +95,18 @@ function fillOverviewKpi(data) {
   CCH.setText("kpiAvailability", CCH.fmtPercent(cost.success_rate));
 }
 
-async function loadOverview() {
+async function loadOverview(forceRefresh = false) {
   const range = CCH.getRange();
   CCH.setText("metaText", "\u6b63\u5728\u52a0\u8f7d\u603b\u89c8\u6570\u636e...");
-  overviewData = await CCH.fetchJson("/api/dashboard", range);
+  overviewData = await CCH.fetchJson("/api/dashboard", range, { forceRefresh });
   fillOverviewKpi(overviewData);
   drawOverviewCharts(overviewData);
   CCH.setMetaFromDashboard(overviewData);
 }
 
-async function safeLoadOverview() {
+async function safeLoadOverview(forceRefresh = false) {
   try {
-    await loadOverview();
+    await loadOverview(forceRefresh);
   } catch (e) {
     CCH.setText("metaText", `\u6570\u636e\u52a0\u8f7d\u5931\u8d25: ${e.message}`);
   }

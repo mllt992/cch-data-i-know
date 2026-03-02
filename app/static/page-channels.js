@@ -102,10 +102,10 @@ function renderChannelTable(rows) {
   document.getElementById("channelTbody").innerHTML = html;
 }
 
-async function loadChannelPage() {
+async function loadChannelPage(forceRefresh = false) {
   const range = CCH.getRange();
   CCH.setText("metaText", "\u6b63\u5728\u52a0\u8f7d\u6e20\u9053\u5206\u6790\u6570\u636e...");
-  const data = await CCH.fetchJson("/api/dashboard", range);
+  const data = await CCH.fetchJson("/api/dashboard", range, { forceRefresh });
   channelRows = (data.channel_usage || []).map((x) => ({
     ...x,
     channel: normalizeChannelName(x.channel),
@@ -116,9 +116,9 @@ async function loadChannelPage() {
   CCH.setMetaFromDashboard(data);
 }
 
-async function safeLoadChannels() {
+async function safeLoadChannels(forceRefresh = false) {
   try {
-    await loadChannelPage();
+    await loadChannelPage(forceRefresh);
   } catch (e) {
     CCH.setText("metaText", `\u6570\u636e\u52a0\u8f7d\u5931\u8d25: ${e.message}`);
   }

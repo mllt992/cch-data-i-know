@@ -78,10 +78,14 @@ async def healthz() -> dict[str, str]:
 async def get_dashboard(
     start_date: date | None = None,
     end_date: date | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> dict:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
-        return await app.state.stats_service.get_dashboard(time_range)
+        return await app.state.stats_service.get_dashboard(
+            time_range,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -92,10 +96,14 @@ async def get_dashboard(
 async def get_cost(
     start_date: date | None = None,
     end_date: date | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> dict:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
-        return await app.state.stats_service.get_cost_overview(time_range)
+        return await app.state.stats_service.get_cost_overview(
+            time_range,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -106,10 +114,14 @@ async def get_cost(
 async def get_model(
     start_date: date | None = None,
     end_date: date | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> list[dict]:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
-        return await app.state.stats_service.get_model_usage(time_range)
+        return await app.state.stats_service.get_model_usage(
+            time_range,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -120,10 +132,14 @@ async def get_model(
 async def get_call_trend(
     start_date: date | None = None,
     end_date: date | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> list[dict]:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
-        return await app.state.stats_service.get_call_trend(time_range)
+        return await app.state.stats_service.get_call_trend(
+            time_range,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -134,10 +150,14 @@ async def get_call_trend(
 async def get_availability(
     start_date: date | None = None,
     end_date: date | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> list[dict]:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
-        return await app.state.stats_service.get_model_availability(time_range)
+        return await app.state.stats_service.get_model_availability(
+            time_range,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -148,10 +168,14 @@ async def get_availability(
 async def get_channel(
     start_date: date | None = None,
     end_date: date | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> list[dict]:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
-        return await app.state.stats_service.get_channel_usage(time_range)
+        return await app.state.stats_service.get_channel_usage(
+            time_range,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -162,10 +186,14 @@ async def get_channel(
 async def get_token(
     start_date: date | None = None,
     end_date: date | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> dict:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
-        return await app.state.stats_service.get_token_usage(time_range)
+        return await app.state.stats_service.get_token_usage(
+            time_range,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -214,6 +242,7 @@ async def get_key_usage(
     end_date: date | None = None,
     records_page: int = 1,
     records_page_size: int | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> dict:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
@@ -222,6 +251,7 @@ async def get_key_usage(
             time_range,
             records_page=records_page,
             records_page_size=records_page_size,
+            force_refresh=force_refresh,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -236,6 +266,7 @@ async def get_keys_usage(
     end_date: date | None = None,
     records_page: int = 1,
     records_page_size: int | None = None,
+    force_refresh: bool = Query(default=False),
 ) -> dict:
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
@@ -247,6 +278,7 @@ async def get_keys_usage(
             time_range,
             records_page=records_page,
             records_page_size=records_page_size,
+            force_refresh=force_refresh,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -255,9 +287,15 @@ async def get_keys_usage(
 
 
 @app.get("/api/stats/realtime-availability")
-async def get_realtime_availability(window: str = "7d") -> dict:
+async def get_realtime_availability(
+    window: str = "7d",
+    force_refresh: bool = Query(default=False),
+) -> dict:
     try:
-        return await app.state.stats_service.get_realtime_availability(window)
+        return await app.state.stats_service.get_realtime_availability(
+            window,
+            force_refresh=force_refresh,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

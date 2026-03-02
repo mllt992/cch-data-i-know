@@ -121,10 +121,10 @@ function renderTokenTable(tokenUsage) {
   document.getElementById("tokenTbody").innerHTML = html;
 }
 
-async function loadTokenPage() {
+async function loadTokenPage(forceRefresh = false) {
   const range = CCH.getRange();
   CCH.setText("metaText", "正在加载 Token 分析数据...");
-  const data = await CCH.fetchJson("/api/dashboard", range);
+  const data = await CCH.fetchJson("/api/dashboard", range, { forceRefresh });
   tokenData = data.token_usage || {};
   fillTokenKpi(tokenData);
   drawTokenCharts(tokenData);
@@ -132,9 +132,9 @@ async function loadTokenPage() {
   CCH.setMetaFromDashboard(data);
 }
 
-async function safeLoadTokens() {
+async function safeLoadTokens(forceRefresh = false) {
   try {
-    await loadTokenPage();
+    await loadTokenPage(forceRefresh);
   } catch (e) {
     CCH.setText("metaText", `数据加载失败: ${e.message}`);
   }
