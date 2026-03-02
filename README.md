@@ -28,6 +28,8 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 - `/availability` 模型可用性
 - `/channels` 渠道数据分析
 - `/tokens` Token 使用分析
+- `/keys` Key 聚合分析页（支持多选 key 聚合展示）
+- `/keys/{key_slug}` Key 专属分析页（自动预选该 key）
 - `/models` 模型使用分析
 - ECharts 现代图表（仪表盘、Treemap、散点、混合图、排行图）。
 - 柱状图支持排序切换（默认从高到低，可切换从低到高）。
@@ -46,23 +48,38 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 | `MAX_RANGE_DAYS` | `180` | API 允许查询的最大时间跨度（天）。 |
 | `DB_POOL_MIN_SIZE` | `1` | 数据库连接池最小连接数。 |
 | `DB_POOL_MAX_SIZE` | `8` | 数据库连接池最大连接数。 |
-| `SCHEMA_REFRESH_SECONDS` | `600` | 表结构缓存刷新间隔（秒）。 |
-| `REFRESH_COST_SECONDS` | `300` | 费用统计缓存刷新间隔（秒）。 |
-| `REFRESH_MODEL_SECONDS` | `300` | 模型统计缓存刷新间隔（秒）。 |
-| `REFRESH_CALL_SECONDS` | `300` | 调用趋势统计缓存刷新间隔（秒）。 |
-| `REFRESH_AVAILABILITY_SECONDS` | `300` | 可用性统计缓存刷新间隔（秒）。 |
-| `REFRESH_REALTIME_AVAILABILITY_SECONDS` | `300` | 实时可用性统计缓存刷新间隔（秒）。 |
-| `REFRESH_CHANNEL_SECONDS` | `300` | 渠道统计缓存刷新间隔（秒）。 |
-| `REFRESH_TOKEN_SECONDS` | `300` | Token 统计缓存刷新间隔（秒）。 |
+| `SCHEMA_REFRESH_SECONDS` | `1800` | 表结构缓存刷新间隔（秒）。 |
+| `REFRESH_COST_SECONDS` | `900` | 费用统计缓存刷新间隔（秒）。 |
+| `REFRESH_MODEL_SECONDS` | `900` | 模型统计缓存刷新间隔（秒）。 |
+| `REFRESH_CALL_SECONDS` | `900` | 调用趋势统计缓存刷新间隔（秒）。 |
+| `REFRESH_AVAILABILITY_SECONDS` | `900` | 可用性统计缓存刷新间隔（秒）。 |
+| `REFRESH_REALTIME_AVAILABILITY_SECONDS` | `900` | 实时可用性统计缓存刷新间隔（秒）。 |
+| `REFRESH_CHANNEL_SECONDS` | `900` | 渠道统计缓存刷新间隔（秒）。 |
+| `REFRESH_TOKEN_SECONDS` | `900` | Token 统计缓存刷新间隔（秒）。 |
 | `CHANNEL_NAME_COLUMN_OVERRIDE` | 空 | 强制指定“渠道名称字段名”，留空则自动识别。 |
 | `CHANNEL_ID_COLUMN_OVERRIDE` | 空 | 强制指定“渠道 ID 字段名”，留空则自动识别。 |
 | `CHANNEL_LOOKUP_TABLE_OVERRIDE` | 空 | 强制指定渠道字典表名，留空则自动识别。 |
 | `CHANNEL_LOOKUP_ID_COLUMN_OVERRIDE` | 空 | 强制指定渠道字典表 ID 字段名，留空则自动识别。 |
 | `CHANNEL_LOOKUP_NAME_COLUMN_OVERRIDE` | 空 | 强制指定渠道字典表名称字段名，留空则自动识别。 |
+| `KEY_COLUMN_OVERRIDE` | 空 | 强制指定“调用 key 字段名”，留空则自动识别（如 `api_key`/`token`）。 |
+| `KEY_RECORDS_LIMIT` | `100` | Key 专属页面使用记录最大返回条数。 |
+| `KEY_RECORDS_DEFAULT_PAGE_SIZE` | `10` | Key 页面记录表默认每页条数。 |
+| `KEY_RECORDS_MAX_PAGE_SIZE` | `100` | Key 页面记录表每页条数上限。 |
+| `KEY_VISUAL_REFRESH_SECONDS` | `30` | Key 页面独立自动刷新间隔（秒）。 |
+| `KEY_VISUAL_AUTO_REFRESH_ENABLED` | `false` | Key 页面是否默认开启自动刷新（默认关闭）。 |
+| `KEY_CONFIGS` | 空 | 配置 Key 菜单与匹配值，格式 `名称|key值;名称2|key值2`。 |
 | `REALTIME_AVAILABILITY_MODEL_LIMIT` | `30` | 实时可用性接口返回的模型数量上限。 |
 | `REALTIME_AVAILABILITY_EVENT_LIMIT` | `120` | 实时可用性接口返回的事件数量上限。 |
 | `REALTIME_AVAILABILITY_ALL_MAX_DAYS` | `120` | `window=all` 时允许查询的最大天数。 |
 | `CORS_ORIGINS` | `*` | CORS 允许来源；多个来源用英文逗号分隔。 |
+
+`KEY_CONFIGS` 示例：
+
+```env
+KEY_CONFIGS=默认Key|sk-xxxxx;运营Key|sk-yyyyy
+```
+
+`GET /api/config/keys` 同时返回 Key 页面可视化配置（自动刷新间隔、分页默认值、分页上限）。
 
 渠道映射逻辑：
 - 优先直接使用渠道名称列。
@@ -163,6 +180,9 @@ docker compose up -d --build
 - `GET /api/stats/availability`
 - `GET /api/stats/channel`
 - `GET /api/stats/token`
+- `GET /api/config/keys`
+- `GET /api/stats/keys?slugs=slug1,slug2&records_page=1&records_page_size=20`
+- `GET /api/stats/key/{key_slug}?records_page=1&records_page_size=20`
 - `GET /api/stats/realtime-availability?window=today|7d|30d|all`
 
 说明：

@@ -18,6 +18,7 @@ class LogSchema:
     channel_lookup_table: str | None
     channel_lookup_id_col: str | None
     channel_lookup_name_col: str | None
+    request_key_col: str | None
     cache_creation_tokens_col: str | None
     cache_creation_5m_tokens_col: str | None
     cache_creation_1h_tokens_col: str | None
@@ -107,8 +108,15 @@ COST_CANDIDATES = ["cost", "total_cost", "fee", "amount", "price", "charge"]
 PROMPT_TOKENS_CANDIDATES = ["prompt_tokens", "input_tokens"]
 COMPLETION_TOKENS_CANDIDATES = ["completion_tokens", "output_tokens"]
 TOTAL_TOKENS_CANDIDATES = ["total_tokens", "tokens", "token_count", "usage_tokens"]
-STATUS_CANDIDATES = ["status", "status_code", "code", "state", "success"]
-ERROR_CANDIDATES = ["error", "error_message", "err", "exception", "failure_reason"]
+STATUS_CANDIDATES = ["is_success", "status", "status_code", "code", "state", "success"]
+ERROR_CANDIDATES = [
+    "error",
+    "error_message",
+    "err",
+    "exception",
+    "failure_reason",
+    "blocked_by",
+]
 LATENCY_CANDIDATES = [
     "latency_ms",
     "duration_ms",
@@ -117,6 +125,20 @@ LATENCY_CANDIDATES = [
     "latency",
     "duration",
     "elapsed",
+]
+KEY_IDENTITY_CANDIDATES = [
+    "api_key",
+    "apikey",
+    "api_token",
+    "access_token",
+    "auth_token",
+    "authorization",
+    "token",
+    "key",
+    "secret_key",
+    "client_key",
+    "client_token",
+    "user_token",
 ]
 
 
@@ -174,6 +196,32 @@ def _pick_channel(columns: dict[str, str]) -> str | None:
         fallback = [col for col in columns if token in col]
         if fallback:
             return fallback[0]
+    return None
+
+
+def _pick_request_key(columns: dict[str, str]) -> str | None:
+    for candidate in KEY_IDENTITY_CANDIDATES:
+        if candidate in columns and _is_text_type(columns[candidate]):
+            return candidate
+
+    ignored_keywords = (
+        "prompt",
+        "completion",
+        "cache",
+        "total",
+        "count",
+        "usage",
+        "input",
+        "output",
+    )
+    for col, dtype in columns.items():
+        if not _is_text_type(dtype):
+            continue
+        if "token" not in col and "key" not in col and "authorization" not in col:
+            continue
+        if any(keyword in col for keyword in ignored_keywords):
+            continue
+        return col
     return None
 
 
@@ -311,6 +359,11 @@ async def detect_log_schema(pool: asyncpg.Pool) -> LogSchema:
             channel_id_col = override
 
     selected_channel_col = channel_name_col or channel_id_col or _pick_channel(best_columns)
+    request_key_col = _pick_request_key(best_columns)
+    if settings.key_column_override:
+        override = settings.key_column_override.lower()
+        if override in best_columns:
+            request_key_col = override
     lookup_schema = None
     lookup_table = None
     lookup_id_col = None
@@ -356,6 +409,7 @@ async def detect_log_schema(pool: asyncpg.Pool) -> LogSchema:
         channel_lookup_table=lookup_table,
         channel_lookup_id_col=lookup_id_col,
         channel_lookup_name_col=lookup_name_col,
+        request_key_col=request_key_col,
         cache_creation_tokens_col=_pick_column(
             best_columns,
             CACHE_CREATION_TOKENS_CANDIDATES,

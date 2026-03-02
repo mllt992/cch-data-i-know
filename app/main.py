@@ -54,6 +54,16 @@ async def tokens_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "tokens.html")
 
 
+@app.get("/keys")
+async def keys_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "key-detail.html")
+
+
+@app.get("/keys/{key_slug}")
+async def key_detail_page(key_slug: str) -> FileResponse:
+    return FileResponse(STATIC_DIR / "key-detail.html")
+
+
 @app.get("/models")
 async def models_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "models.html")
@@ -156,6 +166,64 @@ async def get_token(
     try:
         time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
         return await app.state.stats_service.get_token_usage(time_range)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/config/keys")
+async def get_configured_keys() -> dict:
+    try:
+        return {
+            "keys": app.state.stats_service.list_configured_keys(),
+            "visualization": app.state.stats_service.get_key_visualization_config(),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/stats/key/{key_slug}")
+async def get_key_usage(
+    key_slug: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    records_page: int = 1,
+    records_page_size: int | None = None,
+) -> dict:
+    try:
+        time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
+        return await app.state.stats_service.get_key_usage(
+            key_slug,
+            time_range,
+            records_page=records_page,
+            records_page_size=records_page_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/stats/keys")
+async def get_keys_usage(
+    slugs: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    records_page: int = 1,
+    records_page_size: int | None = None,
+) -> dict:
+    try:
+        time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
+        key_slugs = None
+        if slugs is not None:
+            key_slugs = [item.strip() for item in slugs.split(",") if item.strip()]
+        return await app.state.stats_service.get_keys_usage(
+            key_slugs,
+            time_range,
+            records_page=records_page,
+            records_page_size=records_page_size,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

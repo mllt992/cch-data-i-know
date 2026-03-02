@@ -1,4 +1,7 @@
 const chartRegistry = new Map();
+let configuredKeysCache = null;
+let keyVisualizationConfigCache = null;
+let keyMenuLoadPromise = null;
 
 function fmtNumber(value) {
   return Number(value || 0).toLocaleString();
@@ -29,6 +32,15 @@ function fmtTokenM(value) {
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function toDateInputValue(dateObj) {
@@ -80,7 +92,7 @@ function rangeToQuery(range) {
 
 async function fetchJson(path, range) {
   const query = rangeToQuery(range);
-  const url = query ? `${path}?${query}` : path;
+  const url = query ? `${path}${path.includes("?") ? "&" : "?"}${query}` : path;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
@@ -112,11 +124,109 @@ function sortRows(rows, key, order = "desc") {
   return sorted;
 }
 
-function markActiveMenu() {
+async function fetchConfiguredKeys() {
+  if (configuredKeysCache !== null && keyVisualizationConfigCache !== null) return configuredKeysCache;
+  try {
+    const res = await fetch("/api/config/keys");
+    if (!res.ok) {
+      configuredKeysCache = [];
+      keyVisualizationConfigCache = {
+        refresh_seconds: 30,
+        auto_refresh_enabled: false,
+        records_default_page_size: 10,
+        records_max_page_size: 100,
+      };
+      return configuredKeysCache;
+    }
+    const data = await res.json();
+    configuredKeysCache = Array.isArray(data?.keys) ? data.keys : [];
+    keyVisualizationConfigCache = data?.visualization || {
+      refresh_seconds: 30,
+      auto_refresh_enabled: false,
+      records_default_page_size: 10,
+      records_max_page_size: 100,
+    };
+    return configuredKeysCache;
+  } catch (_) {
+    configuredKeysCache = [];
+    keyVisualizationConfigCache = {
+      refresh_seconds: 30,
+      auto_refresh_enabled: false,
+      records_default_page_size: 10,
+      records_max_page_size: 100,
+    };
+    return configuredKeysCache;
+  }
+}
+
+async function fetchKeyVisualizationConfig() {
+  if (keyVisualizationConfigCache !== null) return keyVisualizationConfigCache;
+  await fetchConfiguredKeys();
+  return keyVisualizationConfigCache || {
+    refresh_seconds: 30,
+    auto_refresh_enabled: false,
+    records_default_page_size: 10,
+    records_max_page_size: 100,
+  };
+}
+
+function getCurrentKeySlug() {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  if (parts.length < 2) return "";
+  if (parts[0] !== "keys") return "";
+  return decodeURIComponent(parts[1] || "").toLowerCase();
+}
+
+function applyMenuActiveState() {
   const page = document.body.getAttribute("data-page");
-  document.querySelectorAll(".menu a").forEach((a) => {
-    a.classList.toggle("active", a.dataset.page === page);
+  const currentKeySlug = getCurrentKeySlug();
+  document.querySelectorAll(".menu a").forEach((item) => {
+    const itemPage = item.dataset.page;
+    const itemKeySlug = (item.dataset.keySlug || "").toLowerCase();
+    const isActive =
+      page === "key-detail"
+        ? itemPage === "key-detail" && itemKeySlug === currentKeySlug
+        : itemPage === page;
+    item.classList.toggle("active", Boolean(isActive));
   });
+}
+
+async function injectKeyMenuItems() {
+  const menu = document.querySelector(".menu");
+  if (!menu) return;
+  if (menu.querySelector('[data-dynamic-key-menu="1"]')) return;
+
+  if (!menu.querySelector('[data-dynamic-key-root="1"]')) {
+    const aggregateLink = document.createElement("a");
+    aggregateLink.href = "/keys";
+    aggregateLink.dataset.page = "key-detail";
+    aggregateLink.dataset.keySlug = "";
+    aggregateLink.dataset.dynamicKeyRoot = "1";
+    aggregateLink.textContent = "Key 聚合分析";
+    menu.appendChild(aggregateLink);
+  }
+
+  const keys = await fetchConfiguredKeys();
+  if (!keys.length) return;
+
+  keys.forEach((item) => {
+    const a = document.createElement("a");
+    a.href = `/keys/${encodeURIComponent(item.slug)}`;
+    a.dataset.page = "key-detail";
+    a.dataset.keySlug = item.slug;
+    a.dataset.dynamicKeyMenu = "1";
+    a.textContent = item.name;
+    menu.appendChild(a);
+  });
+}
+
+function markActiveMenu() {
+  applyMenuActiveState();
+  if (!keyMenuLoadPromise) {
+    keyMenuLoadPromise = injectKeyMenuItems().finally(() => {
+      applyMenuActiveState();
+    });
+  }
 }
 
 function initRangeControls(onApply) {
@@ -172,6 +282,9 @@ window.addEventListener("resize", resizeCharts);
 
 window.CCH = {
   bindRefresh,
+  escapeHtml,
+  fetchConfiguredKeys,
+  fetchKeyVisualizationConfig,
   fetchJson,
   fmtMoney,
   fmtNumber,

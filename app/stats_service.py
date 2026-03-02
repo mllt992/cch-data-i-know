@@ -7,7 +7,7 @@ from typing import Any, Awaitable, Callable, Literal
 
 import asyncpg
 
-from app.config import settings
+from app.config import ConfiguredKey, settings
 from app.schema_detector import LogSchema, detect_log_schema
 
 
@@ -239,6 +239,348 @@ class StatsService:
             err = self._col(schema.error_col)
             return f"CASE WHEN {err} IS NULL OR BTRIM({err}::text) = '' THEN TRUE ELSE FALSE END"
         return "NULL"
+
+    def list_configured_keys(self) -> list[dict[str, str]]:
+        return [{"name": item.name, "slug": item.slug} for item in settings.configured_keys]
+
+    def get_key_visualization_config(self) -> dict[str, int]:
+        max_page_size = max(
+            1,
+            min(settings.key_records_max_page_size, settings.key_records_limit),
+        )
+        default_page_size = max(1, min(settings.key_records_default_page_size, max_page_size))
+        return {
+            "refresh_seconds": max(settings.key_visual_refresh_seconds, 1),
+            "auto_refresh_enabled": bool(settings.key_visual_auto_refresh_enabled),
+            "records_default_page_size": default_page_size,
+            "records_max_page_size": max_page_size,
+        }
+
+    def _resolve_configured_key(self, key_slug: str) -> ConfiguredKey:
+        normalized_slug = key_slug.strip().lower()
+        for item in settings.configured_keys:
+            if item.slug == normalized_slug:
+                return item
+        raise ValueError(f"configured key not found: {key_slug}")
+
+    def _resolve_configured_keys(self, key_slugs: list[str] | None) -> list[ConfiguredKey]:
+        configured = settings.configured_keys
+        if not configured:
+            raise ValueError("no keys configured, please set KEY_CONFIGS in .env")
+
+        if not key_slugs:
+            return configured
+
+        normalized = {item.strip().lower() for item in key_slugs if item and item.strip()}
+        if not normalized:
+            return configured
+
+        selected: list[ConfiguredKey] = [item for item in configured if item.slug in normalized]
+        if not selected:
+            raise ValueError("none of the selected keys matched KEY_CONFIGS")
+        return selected
+
+    async def _load_token_usage_payload(
+        self,
+        time_range: TimeRange,
+        key_values: list[str] | None = None,
+        include_records: bool = False,
+        key_name_map: dict[str, str] | None = None,
+        records_page: int = 1,
+        records_page_size: int | None = None,
+    ) -> dict[str, Any]:
+        schema = await self._get_schema()
+        table = self._table_ref(schema)
+        ts = self._col(schema.timestamp_col)
+        prompt_expr = self._prompt_tokens_expr(schema)
+        completion_expr = self._completion_tokens_expr(schema)
+        cache_creation_expr = self._cache_creation_tokens_expr(schema)
+        cache_read_expr = self._cache_read_tokens_expr(schema)
+        total_expr = self._total_tokens_expr(schema)
+        cost_expr = self._cost_expr(schema)
+        model_expr = self._model_expr(schema)
+        success_expr = self._success_expr(schema)
+
+        params: list[Any] = [time_range.start, time_range.end]
+        where_parts = [f"{ts} >= $1", f"{ts} < $2"]
+        if key_values is not None:
+            if not schema.request_key_col:
+                raise ValueError(
+                    "No key column detected. Please set KEY_COLUMN_OVERRIDE in .env."
+                )
+            clean_values = list(dict.fromkeys([str(item) for item in key_values if str(item)]))
+            if not clean_values:
+                raise ValueError("no valid keys selected")
+            key_col = self._col(schema.request_key_col)
+            where_parts.append(f"COALESCE({key_col}::text, '') = ANY(${len(params) + 1}::text[])")
+            params.append(clean_values)
+
+        where_sql = " AND ".join(where_parts)
+
+        summary_sql = f"""
+            SELECT
+                COUNT(*)::bigint AS total_calls,
+                COUNT(*) FILTER (WHERE {success_expr} IS TRUE)::bigint AS success_calls,
+                ROUND(COALESCE(SUM({cost_expr}), 0)::numeric, 6) AS total_cost,
+                COALESCE(SUM({prompt_expr}), 0)::bigint AS prompt_tokens,
+                COALESCE(SUM({completion_expr}), 0)::bigint AS completion_tokens,
+                COALESCE(SUM({cache_creation_expr}), 0)::bigint AS cache_creation_tokens,
+                COALESCE(SUM({cache_read_expr}), 0)::bigint AS cache_read_tokens,
+                COALESCE(SUM({total_expr}), 0)::bigint AS total_tokens,
+                ROUND(COALESCE(AVG({total_expr}), 0)::numeric, 2) AS avg_tokens_per_call
+            FROM {table}
+            WHERE {where_sql}
+        """
+        by_model_sql = f"""
+            SELECT
+                {model_expr} AS model,
+                COUNT(*)::bigint AS calls,
+                ROUND(COALESCE(SUM({cost_expr}), 0)::numeric, 6) AS cost,
+                COALESCE(SUM({prompt_expr}), 0)::bigint AS prompt_tokens,
+                COALESCE(SUM({completion_expr}), 0)::bigint AS completion_tokens,
+                COALESCE(SUM({cache_creation_expr}), 0)::bigint AS cache_creation_tokens,
+                COALESCE(SUM({cache_read_expr}), 0)::bigint AS cache_read_tokens,
+                COALESCE(SUM({total_expr}), 0)::bigint AS tokens,
+                ROUND(
+                    COALESCE(
+                        100.0 * COUNT(*) FILTER (WHERE {success_expr} IS TRUE) / NULLIF(COUNT(*), 0),
+                        0
+                    )::numeric,
+                    2
+                ) AS success_rate
+            FROM {table}
+            WHERE {where_sql}
+            GROUP BY 1
+            ORDER BY tokens DESC, calls DESC
+            LIMIT 20
+        """
+        trend_sql = f"""
+            SELECT
+                TO_CHAR(date_trunc('day', {ts}), 'YYYY-MM-DD') AS day,
+                COUNT(*)::bigint AS calls,
+                ROUND(COALESCE(SUM({cost_expr}), 0)::numeric, 6) AS cost,
+                COALESCE(SUM({prompt_expr}), 0)::bigint AS prompt_tokens,
+                COALESCE(SUM({completion_expr}), 0)::bigint AS completion_tokens,
+                COALESCE(SUM({cache_creation_expr}), 0)::bigint AS cache_creation_tokens,
+                COALESCE(SUM({cache_read_expr}), 0)::bigint AS cache_read_tokens,
+                COALESCE(SUM({total_expr}), 0)::bigint AS tokens
+            FROM {table}
+            WHERE {where_sql}
+            GROUP BY 1
+            ORDER BY 1 ASC
+        """
+
+        summary_row = await self.pool.fetchrow(summary_sql, *params)
+        by_model_rows = await self.pool.fetch(by_model_sql, *params)
+        trend_rows = await self.pool.fetch(trend_sql, *params)
+
+        total_calls = int(summary_row["total_calls"] or 0)
+        success_calls = int(summary_row["success_calls"] or 0)
+        payload: dict[str, Any] = {
+            "summary": {
+                "total_calls": total_calls,
+                "success_calls": success_calls,
+                "success_rate": round((success_calls / total_calls * 100.0), 2)
+                if total_calls
+                else 0.0,
+                "total_cost": float(summary_row["total_cost"] or 0),
+                "prompt_tokens": int(summary_row["prompt_tokens"] or 0),
+                "completion_tokens": int(summary_row["completion_tokens"] or 0),
+                "cache_creation_tokens": int(summary_row["cache_creation_tokens"] or 0),
+                "cache_read_tokens": int(summary_row["cache_read_tokens"] or 0),
+                "cache_tokens": int(summary_row["cache_creation_tokens"] or 0)
+                + int(summary_row["cache_read_tokens"] or 0),
+                "total_tokens": int(summary_row["total_tokens"] or 0),
+                "avg_tokens_per_call": float(summary_row["avg_tokens_per_call"] or 0),
+            },
+            "by_model": [
+                {
+                    "model": row["model"],
+                    "calls": int(row["calls"] or 0),
+                    "cost": float(row["cost"] or 0),
+                    "prompt_tokens": int(row["prompt_tokens"] or 0),
+                    "completion_tokens": int(row["completion_tokens"] or 0),
+                    "cache_creation_tokens": int(row["cache_creation_tokens"] or 0),
+                    "cache_read_tokens": int(row["cache_read_tokens"] or 0),
+                    "cache_tokens": int(row["cache_creation_tokens"] or 0)
+                    + int(row["cache_read_tokens"] or 0),
+                    "tokens": int(row["tokens"] or 0),
+                    "success_rate": float(row["success_rate"] or 0),
+                }
+                for row in by_model_rows
+            ],
+            "trend": [
+                {
+                    "day": row["day"],
+                    "calls": int(row["calls"] or 0),
+                    "cost": float(row["cost"] or 0),
+                    "prompt_tokens": int(row["prompt_tokens"] or 0),
+                    "completion_tokens": int(row["completion_tokens"] or 0),
+                    "cache_creation_tokens": int(row["cache_creation_tokens"] or 0),
+                    "cache_read_tokens": int(row["cache_read_tokens"] or 0),
+                    "cache_tokens": int(row["cache_creation_tokens"] or 0)
+                    + int(row["cache_read_tokens"] or 0),
+                    "tokens": int(row["tokens"] or 0),
+                }
+                for row in trend_rows
+            ],
+        }
+
+        if not include_records:
+            return payload
+
+        max_page_size = max(
+            1,
+            min(settings.key_records_max_page_size, settings.key_records_limit),
+        )
+        effective_page_size = (
+            max(1, min(records_page_size, max_page_size))
+            if records_page_size is not None
+            else max(1, min(settings.key_records_default_page_size, max_page_size))
+        )
+        effective_page = max(records_page, 1)
+        total_records = total_calls
+        total_pages = max((total_records + effective_page_size - 1) // effective_page_size, 1)
+        if effective_page > total_pages:
+            effective_page = total_pages
+        records_offset = (effective_page - 1) * effective_page_size
+
+        error_expr = self._col(schema.error_col) if schema.error_col else "NULL"
+        status_text_expr = f"{self._col(schema.status_col)}::text" if schema.status_col else "NULL"
+        request_key_expr = self._col(schema.request_key_col) if schema.request_key_col else "NULL"
+        resolved_error_expr = (
+            f"CASE "
+            f"WHEN {error_expr} IS NOT NULL AND BTRIM({error_expr}::text) <> '' THEN {error_expr}::text "
+            f"WHEN {success_expr} IS FALSE AND LOWER(COALESCE({status_text_expr}, '')) IN ('false', 'f', '0') "
+            "  THEN 'request_failed' "
+            f"WHEN {success_expr} IS FALSE AND {status_text_expr} IS NOT NULL "
+            f"  AND BTRIM({status_text_expr}) <> '' THEN 'status=' || {status_text_expr} "
+            "ELSE '' END"
+        )
+        latency_expr = self._latency_expr(schema)
+        if (
+            schema.channel_name_col is None
+            and schema.channel_id_col
+            and schema.channel_lookup_schema
+            and schema.channel_lookup_table
+            and schema.channel_lookup_id_col
+            and schema.channel_lookup_name_col
+        ):
+            channel_id_expr = self._col(schema.channel_id_col)
+            lookup_table = (
+                f"{_quote_ident(schema.channel_lookup_schema)}."
+                f"{_quote_ident(schema.channel_lookup_table)}"
+            )
+            lookup_id = _quote_ident(schema.channel_lookup_id_col)
+            lookup_name = _quote_ident(schema.channel_lookup_name_col)
+            mapped_channel_expr = (
+                f"CASE "
+                f"WHEN c.{lookup_name} IS NULL OR BTRIM(c.{lookup_name}::text) = '' THEN 'unknown' "
+                f"WHEN BTRIM(c.{lookup_name}::text) ~ '^[0-9]+$' THEN 'unknown' "
+                f"WHEN BTRIM(c.{lookup_name}::text) ~* '^[0-9a-f-]{{24,}}$' THEN 'unknown' "
+                f"ELSE BTRIM(c.{lookup_name}::text) END"
+            )
+            records_sql = f"""
+                WITH rec AS (
+                    SELECT
+                        {ts} AS called_at,
+                        {model_expr} AS model,
+                        {request_key_expr}::text AS request_key_value,
+                        {channel_id_expr} AS channel_id_value,
+                        ROUND(COALESCE({cost_expr}, 0)::numeric, 6) AS cost,
+                        COALESCE({prompt_expr}, 0)::bigint AS prompt_tokens,
+                        COALESCE({completion_expr}, 0)::bigint AS completion_tokens,
+                        COALESCE({cache_creation_expr}, 0)::bigint AS cache_creation_tokens,
+                        COALESCE({cache_read_expr}, 0)::bigint AS cache_read_tokens,
+                        COALESCE({total_expr}, 0)::bigint AS total_tokens,
+                        ROUND(COALESCE({latency_expr}, 0)::numeric, 2) AS latency_ms,
+                        {success_expr} AS is_success,
+                        {resolved_error_expr} AS error_message
+                    FROM {table}
+                    WHERE {where_sql}
+                    ORDER BY {ts} DESC
+                    LIMIT ${len(params) + 1}
+                    OFFSET ${len(params) + 2}
+                )
+                SELECT
+                    rec.called_at,
+                    rec.model,
+                    rec.request_key_value,
+                    {mapped_channel_expr} AS channel,
+                    rec.cost,
+                    rec.prompt_tokens,
+                    rec.completion_tokens,
+                    rec.cache_creation_tokens,
+                    rec.cache_read_tokens,
+                    rec.total_tokens,
+                    rec.latency_ms,
+                    rec.is_success,
+                    rec.error_message
+                FROM rec
+                LEFT JOIN {lookup_table} c
+                  ON rec.channel_id_value::text = c.{lookup_id}::text
+                ORDER BY rec.called_at DESC
+            """
+        else:
+            channel_expr = self._channel_expr(schema)
+            records_sql = f"""
+                SELECT
+                    {ts} AS called_at,
+                    {model_expr} AS model,
+                    {request_key_expr}::text AS request_key_value,
+                    {channel_expr} AS channel,
+                    ROUND(COALESCE({cost_expr}, 0)::numeric, 6) AS cost,
+                    COALESCE({prompt_expr}, 0)::bigint AS prompt_tokens,
+                    COALESCE({completion_expr}, 0)::bigint AS completion_tokens,
+                    COALESCE({cache_creation_expr}, 0)::bigint AS cache_creation_tokens,
+                    COALESCE({cache_read_expr}, 0)::bigint AS cache_read_tokens,
+                    COALESCE({total_expr}, 0)::bigint AS total_tokens,
+                    ROUND(COALESCE({latency_expr}, 0)::numeric, 2) AS latency_ms,
+                    {success_expr} AS is_success,
+                    {resolved_error_expr} AS error_message
+                FROM {table}
+                WHERE {where_sql}
+                ORDER BY {ts} DESC
+                LIMIT ${len(params) + 1}
+                OFFSET ${len(params) + 2}
+            """
+        records_rows = await self.pool.fetch(records_sql, *params, effective_page_size, records_offset)
+        payload["records"] = [
+            {
+                "called_at": row["called_at"].isoformat() if row["called_at"] else None,
+                "model": row["model"],
+                "key_value": row["request_key_value"] or "",
+                "key_name": (
+                    (key_name_map or {}).get(row["request_key_value"], row["request_key_value"] or "unknown")
+                ),
+                "channel": row["channel"],
+                "cost": float(row["cost"] or 0),
+                "prompt_tokens": int(row["prompt_tokens"] or 0),
+                "completion_tokens": int(row["completion_tokens"] or 0),
+                "cache_creation_tokens": int(row["cache_creation_tokens"] or 0),
+                "cache_read_tokens": int(row["cache_read_tokens"] or 0),
+                "cache_tokens": int(row["cache_creation_tokens"] or 0)
+                + int(row["cache_read_tokens"] or 0),
+                "total_tokens": int(row["total_tokens"] or 0),
+                "latency_ms": float(row["latency_ms"] or 0),
+                "status": (
+                    "success"
+                    if row["is_success"] is True
+                    else "failed"
+                    if row["is_success"] is False
+                    else "other"
+                ),
+                "error_message": row["error_message"] or "",
+            }
+            for row in records_rows
+        ]
+        payload["records_pagination"] = {
+            "page": effective_page,
+            "page_size": effective_page_size,
+            "total_records": total_records,
+            "total_pages": total_pages,
+        }
+        return payload
 
     async def get_cost_overview(self, time_range: TimeRange) -> dict[str, Any]:
         async def loader() -> dict[str, Any]:
@@ -742,99 +1084,95 @@ class StatsService:
 
     async def get_token_usage(self, time_range: TimeRange) -> dict[str, Any]:
         async def loader() -> dict[str, Any]:
-            schema = await self._get_schema()
-            table = self._table_ref(schema)
-            ts = self._col(schema.timestamp_col)
-            prompt_expr = self._prompt_tokens_expr(schema)
-            completion_expr = self._completion_tokens_expr(schema)
-            cache_creation_expr = self._cache_creation_tokens_expr(schema)
-            cache_read_expr = self._cache_read_tokens_expr(schema)
-            total_expr = self._total_tokens_expr(schema)
-            model_expr = self._model_expr(schema)
-
-            summary_sql = f"""
-                SELECT
-                    COALESCE(SUM({prompt_expr}), 0)::bigint AS prompt_tokens,
-                    COALESCE(SUM({completion_expr}), 0)::bigint AS completion_tokens,
-                    COALESCE(SUM({cache_creation_expr}), 0)::bigint AS cache_creation_tokens,
-                    COALESCE(SUM({cache_read_expr}), 0)::bigint AS cache_read_tokens,
-                    COALESCE(SUM({total_expr}), 0)::bigint AS total_tokens,
-                    ROUND(COALESCE(AVG({total_expr}), 0)::numeric, 2) AS avg_tokens_per_call
-                FROM {table}
-                WHERE {ts} >= $1 AND {ts} < $2
-            """
-            by_model_sql = f"""
-                SELECT
-                    {model_expr} AS model,
-                    COALESCE(SUM({prompt_expr}), 0)::bigint AS prompt_tokens,
-                    COALESCE(SUM({completion_expr}), 0)::bigint AS completion_tokens,
-                    COALESCE(SUM({cache_creation_expr}), 0)::bigint AS cache_creation_tokens,
-                    COALESCE(SUM({cache_read_expr}), 0)::bigint AS cache_read_tokens,
-                    COALESCE(SUM({total_expr}), 0)::bigint AS tokens
-                FROM {table}
-                WHERE {ts} >= $1 AND {ts} < $2
-                GROUP BY 1
-                ORDER BY tokens DESC
-                LIMIT 20
-            """
-            trend_sql = f"""
-                SELECT
-                    TO_CHAR(date_trunc('day', {ts}), 'YYYY-MM-DD') AS day,
-                    COALESCE(SUM({prompt_expr}), 0)::bigint AS prompt_tokens,
-                    COALESCE(SUM({completion_expr}), 0)::bigint AS completion_tokens,
-                    COALESCE(SUM({cache_creation_expr}), 0)::bigint AS cache_creation_tokens,
-                    COALESCE(SUM({cache_read_expr}), 0)::bigint AS cache_read_tokens,
-                    COALESCE(SUM({total_expr}), 0)::bigint AS tokens
-                FROM {table}
-                WHERE {ts} >= $1 AND {ts} < $2
-                GROUP BY 1
-                ORDER BY 1 ASC
-            """
-            summary_row = await self.pool.fetchrow(summary_sql, time_range.start, time_range.end)
-            by_model_rows = await self.pool.fetch(by_model_sql, time_range.start, time_range.end)
-            trend_rows = await self.pool.fetch(trend_sql, time_range.start, time_range.end)
-
-            return {
-                "summary": {
-                    "prompt_tokens": int(summary_row["prompt_tokens"] or 0),
-                    "completion_tokens": int(summary_row["completion_tokens"] or 0),
-                    "cache_creation_tokens": int(summary_row["cache_creation_tokens"] or 0),
-                    "cache_read_tokens": int(summary_row["cache_read_tokens"] or 0),
-                    "cache_tokens": int(summary_row["cache_creation_tokens"] or 0)
-                    + int(summary_row["cache_read_tokens"] or 0),
-                    "total_tokens": int(summary_row["total_tokens"] or 0),
-                    "avg_tokens_per_call": float(summary_row["avg_tokens_per_call"] or 0),
-                },
-                "by_model": [
-                    {
-                        "model": row["model"],
-                        "prompt_tokens": int(row["prompt_tokens"] or 0),
-                        "completion_tokens": int(row["completion_tokens"] or 0),
-                        "cache_creation_tokens": int(row["cache_creation_tokens"] or 0),
-                        "cache_read_tokens": int(row["cache_read_tokens"] or 0),
-                        "cache_tokens": int(row["cache_creation_tokens"] or 0)
-                        + int(row["cache_read_tokens"] or 0),
-                        "tokens": int(row["tokens"] or 0),
-                    }
-                    for row in by_model_rows
-                ],
-                "trend": [
-                    {
-                        "day": row["day"],
-                        "prompt_tokens": int(row["prompt_tokens"] or 0),
-                        "completion_tokens": int(row["completion_tokens"] or 0),
-                        "cache_creation_tokens": int(row["cache_creation_tokens"] or 0),
-                        "cache_read_tokens": int(row["cache_read_tokens"] or 0),
-                        "cache_tokens": int(row["cache_creation_tokens"] or 0)
-                        + int(row["cache_read_tokens"] or 0),
-                        "tokens": int(row["tokens"] or 0),
-                    }
-                    for row in trend_rows
-                ],
-            }
+            return await self._load_token_usage_payload(time_range)
 
         key = f"token_usage::{time_range.key}"
         return await self._cached(key, settings.refresh_token_seconds, loader)
+
+    async def get_key_usage(
+        self,
+        key_slug: str,
+        time_range: TimeRange,
+        records_page: int = 1,
+        records_page_size: int | None = None,
+    ) -> dict[str, Any]:
+        configured_key = self._resolve_configured_key(key_slug)
+
+        async def loader() -> dict[str, Any]:
+            schema = await self._get_schema()
+            payload = await self._load_token_usage_payload(
+                time_range,
+                key_values=[configured_key.value],
+                include_records=True,
+                key_name_map={configured_key.value: configured_key.name},
+                records_page=records_page,
+                records_page_size=records_page_size,
+            )
+            payload["key"] = {
+                "name": configured_key.name,
+                "slug": configured_key.slug,
+            }
+            payload["keys"] = [
+                {
+                    "name": configured_key.name,
+                    "slug": configured_key.slug,
+                }
+            ]
+            payload["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            payload["time_range"] = {
+                "start": time_range.start.date().isoformat(),
+                "end": (time_range.end - timedelta(days=1)).date().isoformat(),
+            }
+            payload["source"] = {
+                "table": f"{schema.table_schema}.{schema.table_name}",
+                "request_key_col": schema.request_key_col,
+            }
+            return payload
+
+        cache_key = (
+            f"key_usage::{configured_key.slug}::{time_range.key}"
+            f"::p{records_page}::s{records_page_size or 0}"
+        )
+        return await self._cached(cache_key, settings.refresh_token_seconds, loader)
+
+    async def get_keys_usage(
+        self,
+        key_slugs: list[str] | None,
+        time_range: TimeRange,
+        records_page: int = 1,
+        records_page_size: int | None = None,
+    ) -> dict[str, Any]:
+        selected_keys = self._resolve_configured_keys(key_slugs)
+        value_to_name = {item.value: item.name for item in selected_keys}
+        selected_slugs = [item.slug for item in selected_keys]
+
+        async def loader() -> dict[str, Any]:
+            schema = await self._get_schema()
+            payload = await self._load_token_usage_payload(
+                time_range,
+                key_values=[item.value for item in selected_keys],
+                include_records=True,
+                key_name_map=value_to_name,
+                records_page=records_page,
+                records_page_size=records_page_size,
+            )
+            payload["keys"] = [{"name": item.name, "slug": item.slug} for item in selected_keys]
+            payload["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            payload["time_range"] = {
+                "start": time_range.start.date().isoformat(),
+                "end": (time_range.end - timedelta(days=1)).date().isoformat(),
+            }
+            payload["source"] = {
+                "table": f"{schema.table_schema}.{schema.table_name}",
+                "request_key_col": schema.request_key_col,
+            }
+            return payload
+
+        cache_key = (
+            f"keys_usage::{','.join(sorted(selected_slugs))}::{time_range.key}"
+            f"::p{records_page}::s{records_page_size or 0}"
+        )
+        return await self._cached(cache_key, settings.refresh_token_seconds, loader)
 
     async def get_dashboard(self, time_range: TimeRange) -> dict[str, Any]:
         schema = await self._get_schema()
@@ -865,10 +1203,12 @@ class StatsService:
                     else None
                 ),
                 "channel_lookup_name_col": schema.channel_lookup_name_col,
+                "request_key_col": schema.request_key_col,
                 "cache_creation_tokens_col": schema.cache_creation_tokens_col,
                 "cache_creation_5m_tokens_col": schema.cache_creation_5m_tokens_col,
                 "cache_creation_1h_tokens_col": schema.cache_creation_1h_tokens_col,
                 "cache_read_tokens_col": schema.cache_read_tokens_col,
+                "configured_key_count": len(settings.configured_keys),
             },
             "cost_overview": cost,
             "model_usage": model,

@@ -223,6 +223,91 @@ button {
   color: var(--muted);
 }
 
+.key-select-wrap {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px dashed rgba(42, 118, 211, 0.32);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.key-select-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.key-select-head span {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1c5faa;
+}
+
+.key-selector-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.key-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(42, 118, 211, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #1b599f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.record-controls {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px dashed rgba(42, 118, 211, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.record-controls-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1c5faa;
+  margin-bottom: 8px;
+}
+
+.record-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.record-controls-grid select,
+.record-controls-grid input {
+  border: 1px solid rgba(42, 118, 211, 0.27);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 8px 10px;
+  color: var(--text);
+}
+
+.field-checkbox .inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 0;
+}
+
+.field-checkbox .inline-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
 .kpi-grid {
   margin-top: 14px;
   display: grid;
@@ -473,6 +558,131 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.table-pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+}
+
+.pager-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pager-btn {
+  min-width: 34px;
+  height: 30px;
+  border: 1px solid rgba(44, 124, 225, 0.35);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #1e65c1;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pager-btn.active {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), #52abff);
+  color: #fff;
+}
+
+.pager-ellipsis {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+
+.pager-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager-jump input {
+  width: 84px;
+  border: 1px solid rgba(42, 118, 211, 0.27);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 6px 8px;
+  color: var(--text);
+}
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.status-success {
+  color: #0d7a6f;
+  background: rgba(26, 168, 153, 0.14);
+  border-color: rgba(26, 168, 153, 0.36);
+}
+
+.status-failed {
+  color: #b93b3b;
+  background: rgba(240, 100, 100, 0.16);
+  border-color: rgba(240, 100, 100, 0.4);
+}
+
+.status-other {
+  color: #9a6b06;
+  background: rgba(242, 191, 83, 0.2);
+  border-color: rgba(242, 191, 83, 0.45);
+}
+
+.channel-tag {
+  display: inline-block;
+  max-width: 180px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(42, 118, 211, 0.26);
+  background: rgba(46, 131, 255, 0.1);
+  color: #1a63bc;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.channel-tag.is-unknown {
+  color: #6f7f8f;
+  background: rgba(140, 160, 180, 0.15);
+  border-color: rgba(120, 140, 160, 0.35);
+}
+
+.error-text {
+  display: inline-block;
+  max-width: 340px;
+  color: #a53535;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.error-empty {
+  color: #7f96ad;
+  font-size: 12px;
+}
+
 .fade-in {
   animation: fadeInUp 0.35s ease both;
 }
@@ -550,6 +760,10 @@ tbody tr:last-child td {
   }
 
   .range-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .record-controls-grid {
     grid-template-columns: 1fr;
   }
 
