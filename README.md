@@ -36,29 +36,33 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 
 ## 环境变量
 
-见 `.env.example`。关键项：
+可复制 `.env.example` 为 `.env` 后按需修改。以下是每个配置项的中文说明：
 
-- `DATABASE_DSN`
-- `HISTORY_DAYS`
-- `MAX_RANGE_DAYS`
-
-- `REFRESH_COST_SECONDS`
-- `REFRESH_MODEL_SECONDS`
-- `REFRESH_CALL_SECONDS`
-- `REFRESH_AVAILABILITY_SECONDS`
-- `REFRESH_REALTIME_AVAILABILITY_SECONDS`
-- `REFRESH_CHANNEL_SECONDS`
-- `REFRESH_TOKEN_SECONDS`
-
-- `REALTIME_AVAILABILITY_MODEL_LIMIT`
-- `REALTIME_AVAILABILITY_EVENT_LIMIT`
-- `REALTIME_AVAILABILITY_ALL_MAX_DAYS`
-
-- `CHANNEL_NAME_COLUMN_OVERRIDE`
-- `CHANNEL_ID_COLUMN_OVERRIDE`
-- `CHANNEL_LOOKUP_TABLE_OVERRIDE`
-- `CHANNEL_LOOKUP_ID_COLUMN_OVERRIDE`
-- `CHANNEL_LOOKUP_NAME_COLUMN_OVERRIDE`
+| 配置项 | 默认值 | 中文说明 |
+| --- | --- | --- |
+| `APP_NAME` | `CCH Stats Dashboard` | 应用名称，用于页面标题和服务标识。 |
+| `DATABASE_DSN` | 无（必填） | PostgreSQL 连接串，格式 `postgres://用户名:密码@主机:端口/数据库名`。 |
+| `HISTORY_DAYS` | `30` | 默认统计历史天数（未传时间参数时使用）。 |
+| `MAX_RANGE_DAYS` | `180` | API 允许查询的最大时间跨度（天）。 |
+| `DB_POOL_MIN_SIZE` | `1` | 数据库连接池最小连接数。 |
+| `DB_POOL_MAX_SIZE` | `8` | 数据库连接池最大连接数。 |
+| `SCHEMA_REFRESH_SECONDS` | `600` | 表结构缓存刷新间隔（秒）。 |
+| `REFRESH_COST_SECONDS` | `300` | 费用统计缓存刷新间隔（秒）。 |
+| `REFRESH_MODEL_SECONDS` | `300` | 模型统计缓存刷新间隔（秒）。 |
+| `REFRESH_CALL_SECONDS` | `300` | 调用趋势统计缓存刷新间隔（秒）。 |
+| `REFRESH_AVAILABILITY_SECONDS` | `300` | 可用性统计缓存刷新间隔（秒）。 |
+| `REFRESH_REALTIME_AVAILABILITY_SECONDS` | `300` | 实时可用性统计缓存刷新间隔（秒）。 |
+| `REFRESH_CHANNEL_SECONDS` | `300` | 渠道统计缓存刷新间隔（秒）。 |
+| `REFRESH_TOKEN_SECONDS` | `300` | Token 统计缓存刷新间隔（秒）。 |
+| `CHANNEL_NAME_COLUMN_OVERRIDE` | 空 | 强制指定“渠道名称字段名”，留空则自动识别。 |
+| `CHANNEL_ID_COLUMN_OVERRIDE` | 空 | 强制指定“渠道 ID 字段名”，留空则自动识别。 |
+| `CHANNEL_LOOKUP_TABLE_OVERRIDE` | 空 | 强制指定渠道字典表名，留空则自动识别。 |
+| `CHANNEL_LOOKUP_ID_COLUMN_OVERRIDE` | 空 | 强制指定渠道字典表 ID 字段名，留空则自动识别。 |
+| `CHANNEL_LOOKUP_NAME_COLUMN_OVERRIDE` | 空 | 强制指定渠道字典表名称字段名，留空则自动识别。 |
+| `REALTIME_AVAILABILITY_MODEL_LIMIT` | `30` | 实时可用性接口返回的模型数量上限。 |
+| `REALTIME_AVAILABILITY_EVENT_LIMIT` | `120` | 实时可用性接口返回的事件数量上限。 |
+| `REALTIME_AVAILABILITY_ALL_MAX_DAYS` | `120` | `window=all` 时允许查询的最大天数。 |
+| `CORS_ORIGINS` | `*` | CORS 允许来源；多个来源用英文逗号分隔。 |
 
 渠道映射逻辑：
 - 优先直接使用渠道名称列。
@@ -77,13 +81,77 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 打开 `http://localhost:8000`。
 
-## Docker 运行
+## Docker 部署
+
+### 方式一：基于 Docker Hub 镜像（docker run）
+
+1. 准备环境变量文件：
+
+```bash
+cp .env.example .env
+# 编辑 .env，至少配置 DATABASE_DSN
+```
+
+2. 拉取镜像：
+
+```bash
+docker pull xrilang/cch-data-i-know:latest
+```
+
+3. 启动容器：
+
+```bash
+docker run -d \
+  --name cch-stats-dashboard \
+  --env-file .env \
+  -p 8000:8000 \
+  --restart unless-stopped \
+  xrilang/cch-data-i-know:latest
+```
+
+### 方式二：基于 Docker Hub 镜像（docker compose）
+
+1. 准备环境变量文件：
+
+```bash
+cp .env.example .env
+# 编辑 .env，至少配置 DATABASE_DSN
+```
+
+2. 新建 `docker-compose.hub.yml`：
+
+```yaml
+services:
+  cch-stats-dashboard:
+    image: xrilang/cch-data-i-know:latest
+    container_name: cch-stats-dashboard
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+```
+
+3. 启动服务：
+
+```bash
+docker compose -f docker-compose.hub.yml up -d
+```
+
+4. 查看状态与日志：
+
+```bash
+docker compose -f docker-compose.hub.yml ps
+docker compose -f docker-compose.hub.yml logs -f
+```
+
+打开 `http://localhost:8000`。
+
+### 方式三：本地源码构建镜像（可选）
 
 ```bash
 docker compose up -d --build
 ```
-
-打开 `http://localhost:8000`。
 
 ## API
 
