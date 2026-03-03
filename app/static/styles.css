@@ -279,6 +279,26 @@ button {
   margin-bottom: 8px;
 }
 
+.record-refresh-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.record-refresh-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid rgba(42, 118, 211, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #1c5faa;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .record-controls-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

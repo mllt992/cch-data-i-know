@@ -14,6 +14,9 @@ let recordsPage = 1;
 let recordsPageSize = 10;
 let keyAutoRefreshSeconds = 30;
 let keyAutoRefreshEnabled = false;
+let refreshCountdownTimer = null;
+let nextAutoRefreshAt = 0;
+let lastRefreshAtText = "-";
 
 function clampInt(value, min, max) {
   const n = Number(value);
@@ -344,6 +347,39 @@ function renderVisualConfigControls() {
   if (autoInput) autoInput.value = String(keyAutoRefreshSeconds);
   const autoEnabledInput = document.getElementById("autoRefreshEnabledInput");
   if (autoEnabledInput) autoEnabledInput.checked = Boolean(keyAutoRefreshEnabled);
+  renderRefreshStatus();
+}
+
+function renderRefreshStatus() {
+  const statusText = keyAutoRefreshEnabled
+    ? `自动刷新：已开启（${keyAutoRefreshSeconds} 秒） | 最近刷新：${lastRefreshAtText}`
+    : `自动刷新：已关闭 | 最近刷新：${lastRefreshAtText}`;
+  CCH.setText("recordRefreshStatus", statusText);
+
+  if (!keyAutoRefreshEnabled || !nextAutoRefreshAt) {
+    CCH.setText("recordRefreshCountdown", "下次刷新：-");
+    return;
+  }
+  const remainSeconds = Math.max(0, Math.ceil((nextAutoRefreshAt - Date.now()) / 1000));
+  CCH.setText("recordRefreshCountdown", `下次刷新：${remainSeconds} 秒后`);
+}
+
+function stopRefreshCountdownTicker() {
+  if (!refreshCountdownTimer) return;
+  clearInterval(refreshCountdownTimer);
+  refreshCountdownTimer = null;
+}
+
+function startRefreshCountdownTicker() {
+  stopRefreshCountdownTicker();
+  if (!keyAutoRefreshEnabled || !nextAutoRefreshAt) {
+    renderRefreshStatus();
+    return;
+  }
+  renderRefreshStatus();
+  refreshCountdownTimer = setInterval(() => {
+    renderRefreshStatus();
+  }, 1000);
 }
 
 function resetAutoRefreshTimer() {
@@ -351,13 +387,23 @@ function resetAutoRefreshTimer() {
     clearInterval(refreshTimer);
     refreshTimer = null;
   }
-  if (!keyAutoRefreshEnabled) return;
+  stopRefreshCountdownTicker();
+  if (!keyAutoRefreshEnabled) {
+    nextAutoRefreshAt = 0;
+    renderRefreshStatus();
+    return;
+  }
+  safeLoadKeyDetailPage(true);
+  nextAutoRefreshAt = Date.now() + keyAutoRefreshSeconds * 1000;
+  startRefreshCountdownTicker();
   refreshTimer = setInterval(() => {
-    safeLoadKeyDetailPage();
+    safeLoadKeyDetailPage(true);
+    nextAutoRefreshAt = Date.now() + keyAutoRefreshSeconds * 1000;
+    renderRefreshStatus();
   }, keyAutoRefreshSeconds * 1000);
 }
 
-function applyVisualConfigFromUI() {
+function applyVisualConfigFromUI(triggerRefresh = false) {
   const pageSizeSelect = document.getElementById("recordsPageSizeSelect");
   const autoInput = document.getElementById("autoRefreshSecondsInput");
   const autoEnabledInput = document.getElementById("autoRefreshEnabledInput");
@@ -368,11 +414,12 @@ function applyVisualConfigFromUI() {
   );
   const selectedRefreshSeconds = clampInt(autoInput?.value, 30, 86400);
   const selectedAutoEnabled = Boolean(autoEnabledInput?.checked);
+  const pageSizeChanged = selectedPageSize !== recordsPageSize;
 
   recordsPageSize = selectedPageSize;
   keyAutoRefreshSeconds = selectedRefreshSeconds;
   keyAutoRefreshEnabled = selectedAutoEnabled;
-  recordsPage = 1;
+  if (pageSizeChanged) recordsPage = 1;
 
   localStorage.setItem("cch_key_records_page_size", String(recordsPageSize));
   localStorage.setItem("cch_key_auto_refresh_seconds", String(keyAutoRefreshSeconds));
@@ -380,6 +427,9 @@ function applyVisualConfigFromUI() {
 
   renderVisualConfigControls();
   resetAutoRefreshTimer();
+  if (triggerRefresh && !keyAutoRefreshEnabled) {
+    safeLoadKeyDetailPage(true);
+  }
 }
 
 async function initVisualConfig() {
@@ -438,6 +488,8 @@ async function loadKeyDetailPage(forceRefresh = false) {
   renderKeyModelTable(keyData);
   renderKeyRecordTable(keyData);
   setKeyMeta(keyData);
+  lastRefreshAtText = CCH.formatDateTimeCN(new Date());
+  renderRefreshStatus();
 }
 
 async function safeLoadKeyDetailPage(forceRefresh = false) {
@@ -445,6 +497,7 @@ async function safeLoadKeyDetailPage(forceRefresh = false) {
     await loadKeyDetailPage(forceRefresh);
   } catch (e) {
     CCH.setText("metaText", `数据加载失败: ${e.message}`);
+    renderRefreshStatus();
   }
 }
 
@@ -515,8 +568,13 @@ function bindRecordPagerActions() {
 
 function bindVisualConfigActions() {
   document.getElementById("applyVisualConfigBtn")?.addEventListener("click", () => {
+    applyVisualConfigFromUI(true);
+  });
+  document.getElementById("autoRefreshEnabledInput")?.addEventListener("change", () => {
     applyVisualConfigFromUI();
-    safeLoadKeyDetailPage();
+  });
+  document.getElementById("autoRefreshSecondsInput")?.addEventListener("change", () => {
+    applyVisualConfigFromUI();
   });
 }
 
@@ -537,5 +595,5 @@ document.addEventListener("DOMContentLoaded", async () => {
     drawKeyCharts(keyData);
     renderKeyModelTable(keyData);
   });
-  safeLoadKeyDetailPage();
+  if (!keyAutoRefreshEnabled) safeLoadKeyDetailPage();
 });

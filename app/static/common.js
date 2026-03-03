@@ -159,13 +159,14 @@ function rangeToQuery(range, options = {}) {
   if (range.start) params.set("start_date", range.start);
   if (range.end) params.set("end_date", range.end);
   if (options.forceRefresh) params.set("force_refresh", "1");
+  if (options.forceRefresh) params.set("_ts", String(Date.now()));
   return params.toString();
 }
 
 async function fetchJson(path, range, options = {}) {
   const query = rangeToQuery(range, options);
   const url = query ? `${path}${path.includes("?") ? "&" : "?"}${query}` : path;
-  const res = await fetch(url);
+  const res = await fetch(url, options.forceRefresh ? { cache: "no-store" } : undefined);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
