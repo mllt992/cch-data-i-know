@@ -386,6 +386,20 @@ class StatsService:
             raise ValueError("none of the selected keys matched KEY_CONFIGS")
         return selected
 
+    def _expand_selected_key_values(
+        self,
+        selected_keys: list[ConfiguredKey],
+    ) -> tuple[list[str], dict[str, str]]:
+        key_values: list[str] = []
+        key_name_map: dict[str, str] = {}
+        for item in selected_keys:
+            for value in item.values:
+                if not value:
+                    continue
+                key_values.append(value)
+                key_name_map.setdefault(value, item.name)
+        return list(dict.fromkeys(key_values)), key_name_map
+
     async def _load_token_usage_payload(
         self,
         time_range: TimeRange,
@@ -1260,14 +1274,15 @@ class StatsService:
         force_refresh: bool = False,
     ) -> dict[str, Any]:
         configured_key = self._resolve_configured_key(key_slug)
+        key_values, key_name_map = self._expand_selected_key_values([configured_key])
 
         async def loader() -> dict[str, Any]:
             schema = await self._get_schema()
             payload = await self._load_token_usage_payload(
                 time_range,
-                key_values=[configured_key.value],
+                key_values=key_values,
                 include_records=True,
-                key_name_map={configured_key.value: configured_key.name},
+                key_name_map=key_name_map,
                 records_page=records_page,
                 records_page_size=records_page_size,
             )
@@ -1312,14 +1327,14 @@ class StatsService:
         force_refresh: bool = False,
     ) -> dict[str, Any]:
         selected_keys = self._resolve_configured_keys(key_slugs)
-        value_to_name = {item.value: item.name for item in selected_keys}
+        key_values, value_to_name = self._expand_selected_key_values(selected_keys)
         selected_slugs = [item.slug for item in selected_keys]
 
         async def loader() -> dict[str, Any]:
             schema = await self._get_schema()
             payload = await self._load_token_usage_payload(
                 time_range,
-                key_values=[item.value for item in selected_keys],
+                key_values=key_values,
                 include_records=True,
                 key_name_map=value_to_name,
                 records_page=records_page,

@@ -69,7 +69,7 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 | `KEY_RECORDS_MAX_PAGE_SIZE` | `100` | Key 页面记录表每页条数上限。 |
 | `KEY_VISUAL_REFRESH_SECONDS` | `30` | Key 页面独立自动刷新间隔（秒）。 |
 | `KEY_VISUAL_AUTO_REFRESH_ENABLED` | `false` | Key 页面是否默认开启自动刷新（默认关闭）。 |
-| `KEY_CONFIGS` | 空 | 配置 Key 菜单与匹配值，格式 `名称|key值;名称2|key值2`。 |
+| `KEY_CONFIGS` | 空 | 配置 Key 菜单与匹配值，支持 `名称|key值` 和 `名称|(key值1,key值2)` 两种格式。 |
 | `REALTIME_AVAILABILITY_MODEL_LIMIT` | `30` | 实时可用性接口返回的模型数量上限。 |
 | `REALTIME_AVAILABILITY_EVENT_LIMIT` | `120` | 实时可用性接口返回的事件数量上限。 |
 | `REALTIME_AVAILABILITY_ALL_MAX_DAYS` | `120` | `window=all` 时允许查询的最大天数。 |
@@ -79,6 +79,10 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 
 ```env
 KEY_CONFIGS=默认Key|sk-xxxxx;运营Key|sk-yyyyy
+```
+
+```env
+KEY_CONFIGS=渠道A|(ks-aaa,ks-bbb);渠道B|ks-ccc
 ```
 
 `GET /api/config/keys` 同时返回 Key 页面可视化配置（自动刷新间隔、分页默认值、分页上限）。

@@ -8,8 +8,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 @dataclass(frozen=True)
 class ConfiguredKey:
     name: str
-    value: str
+    values: tuple[str, ...]
     slug: str
+
+    @property
+    def value(self) -> str:
+        return self.values[0] if self.values else ""
 
 
 def _slugify(value: str) -> str:
@@ -42,17 +46,43 @@ def _parse_configured_keys(raw: str) -> list[ConfiguredKey]:
             continue
 
         name = name_part.strip()
-        value = key_part.strip()
-        if not name or not value:
+        values = _parse_key_values(key_part)
+        if not name or not values:
             continue
 
         base_slug = _slugify(name)
         index = used_slugs.get(base_slug, 0) + 1
         used_slugs[base_slug] = index
         slug = base_slug if index == 1 else f"{base_slug}-{index}"
-        keys.append(ConfiguredKey(name=name, value=value, slug=slug))
+        keys.append(ConfiguredKey(name=name, values=values, slug=slug))
 
     return keys
+
+
+def _parse_key_values(raw: str) -> tuple[str, ...]:
+    text = raw.strip()
+    if not text:
+        return tuple()
+
+    wrapped_pairs = {
+        ("(", ")"),
+        ("（", "）"),
+        ("[", "]"),
+        ("【", "】"),
+    }
+    if len(text) >= 2 and (text[0], text[-1]) in wrapped_pairs:
+        text = text[1:-1].strip()
+
+    normalized = text.replace("，", ",")
+    parts = [item.strip() for item in normalized.split(",")]
+    clean = [
+        item.strip().strip('"').strip("'")
+        for item in parts
+        if item.strip().strip('"').strip("'")
+    ]
+    if not clean:
+        return tuple()
+    return tuple(dict.fromkeys(clean))
 
 
 class Settings(BaseSettings):
