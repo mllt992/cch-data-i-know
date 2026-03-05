@@ -89,7 +89,7 @@ curl "http://localhost:8000/api/users/10/keys/16/stats?records_limit=50"
       {
         "id": 16,
         "name": "CC密钥",
-        "key_preview": "sk-d55d91fe2a039425...",
+        "key_preview": "<masked>",
         "provider_group": "CC,Claude",
         "is_enabled": true,
         "channels": [
@@ -114,7 +114,7 @@ curl "http://localhost:8000/api/users/10/keys/16/stats?records_limit=50"
   "key_id": 16,
   "key_info": {
     "name": "CC密钥",
-    "key_preview": "sk-d55d91fe2a039425...",
+    "key_preview": "<masked>",
     "provider_group": "CC,Claude"
   },
   "summary": {
@@ -177,3 +177,4 @@ users (1) ─── (N) keys
 
 **测试通过**: ✅ All tests passed!
 **更新时间**: 2026-03-05
+
