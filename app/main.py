@@ -69,6 +69,11 @@ async def models_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "models.html")
 
 
+@app.get("/users")
+async def users_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "users.html")
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -295,6 +300,56 @@ async def get_realtime_availability(
         return await app.state.stats_service.get_realtime_availability(
             window,
             force_refresh=force_refresh,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ========== 用户数据分析 API ==========
+
+
+@app.get("/api/users/tree")
+async def get_users_tree() -> list[dict]:
+    try:
+        return await app.state.stats_service.get_users_tree()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/users/{user_id}/stats")
+async def get_user_stats(
+    user_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict:
+    try:
+        time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
+        return await app.state.stats_service.get_user_stats(user_id, time_range)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/users/{user_id}/keys/{key_id}/stats")
+async def get_user_key_stats(
+    user_id: int,
+    key_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    records_page: int = Query(default=1, ge=1),
+    records_page_size: int | None = Query(default=None, ge=1, le=1000),
+) -> dict:
+    try:
+        time_range = app.state.stats_service.resolve_time_range(start_date, end_date)
+        return await app.state.stats_service.get_user_key_stats(
+            user_id,
+            key_id,
+            time_range,
+            records_page=records_page,
+            records_page_size=records_page_size,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

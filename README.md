@@ -24,13 +24,14 @@ FastAPI + PostgreSQL 的数据统计网站，支持：
 
 - 自动识别日志表和常见字段（时间、模型、渠道、费用、Token、状态、错误等）。
 - 多页面可视化：
-- `/` 首页总览
-- `/availability` 模型可用性
-- `/channels` 渠道数据分析
-- `/tokens` Token 使用分析
-- `/keys` Key 聚合分析页（支持多选 key 聚合展示）
-- `/keys/{key_slug}` Key 专属分析页（自动预选该 key）
-- `/models` 模型使用分析
+  - `/` 首页总览
+  - `/availability` 模型可用性
+  - `/channels` 渠道数据分析
+  - `/tokens` Token 使用分析
+  - `/keys` Key 聚合分析页（支持多选 key 聚合展示）
+  - `/keys/{key_slug}` Key 专属分析页（自动预选该 key）
+  - `/models` 模型使用分析
+  - `/users` **用户数据分析**（新增: 用户→密钥→渠道树形结构,支持详细统计）
 - ECharts 现代图表（仪表盘、Treemap、散点、混合图、排行图）。
 - 柱状图支持排序切换（默认从高到低，可切换从低到高）。
 - 模型可用性页面含“实时可用性检测”方格板块（今天/近七天/近一个月/全部）。
@@ -211,6 +212,9 @@ docker compose up -d --build
 - `GET /api/stats/key/{key_slug}?records_page=1&records_page_size=20`
 - `GET /api/stats/realtime-availability?window=today|7d|30d|all`
 - `POST /api/admin/refresh-all`（需在 `.env` 启用并携带刷新授权 key）
+- **`GET /api/users/tree`** (新增: 获取用户树形结构)
+- **`GET /api/users/{user_id}/stats`** (新增: 获取用户统计)
+- **`GET /api/users/{user_id}/keys/{key_id}/stats`** (新增: 获取密钥详细统计)
 
 说明：
 - `window=all` 时按“天”聚合，每个方格固定代表 1 天，最多查询最近 `REALTIME_AVAILABILITY_ALL_MAX_DAYS` 天（默认 120 天）。
