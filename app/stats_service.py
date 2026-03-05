@@ -1410,3 +1410,372 @@ class StatsService:
             "channel_usage": channel,
             "token_usage": token,
         }
+
+    # ========== 用户数据分析 API ==========
+
+    async def get_users_tree(self) -> list[dict[str, Any]]:
+        """获取用户树形结构数据: 用户 → 密钥 → 渠道"""
+        users_query = """
+            SELECT id, name, role, provider_group, is_enabled, created_at
+            FROM users
+            WHERE deleted_at IS NULL
+            ORDER BY id
+        """
+        users = await self.pool.fetch(users_query)
+
+        provider_cols_raw = await self.pool.fetch(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'providers' AND table_schema = current_schema()
+            """
+        )
+        provider_cols = {str(row["column_name"]).lower() for row in provider_cols_raw}
+        provider_priority_expr = (
+            "COALESCE(priority, 0)::double precision AS priority"
+            if "priority" in provider_cols
+            else "NULL::double precision AS priority"
+        )
+        provider_weight_expr = (
+            "COALESCE(weight, 0)::double precision AS weight"
+            if "weight" in provider_cols
+            else "NULL::double precision AS weight"
+        )
+
+        tree = []
+        for user in users:
+            user_id = user["id"]
+            user_node = {
+                "id": user_id,
+                "name": user["name"],
+                "role": user["role"],
+                "provider_group": user["provider_group"],
+                "is_enabled": user["is_enabled"],
+                "created_at": _format_cn_datetime(user["created_at"]),
+                "keys": [],
+            }
+
+            # 查询该用户的所有密钥
+            keys_query = """
+                SELECT id, name, key, provider_group, is_enabled, created_at, expires_at
+                FROM keys
+                WHERE user_id = $1 AND deleted_at IS NULL
+                ORDER BY id
+            """
+            keys = await self.pool.fetch(keys_query, user_id)
+
+            for key in keys:
+                key_node = {
+                    "id": key["id"],
+                    "name": key["name"],
+                    "key_preview": "",
+                    "provider_group": key["provider_group"],
+                    "is_enabled": key["is_enabled"],
+                    "created_at": _format_cn_datetime(key["created_at"]),
+                    "expires_at": _format_cn_datetime(key["expires_at"]),
+                    "channels": [],
+                }
+
+                # 查询该密钥可用的渠道 (根据provider_group)
+                provider_groups = sorted(
+                    {
+                        g.strip().lower()
+                        for g in (key["provider_group"] or "").split(",")
+                        if g and g.strip()
+                    }
+                )
+
+                if provider_groups:
+                    channels_query = f"""
+                        SELECT p.id, p.name, p.group_tag, p.is_enabled, p.url,
+                               {provider_priority_expr},
+                               {provider_weight_expr}
+                        FROM providers p
+                        WHERE p.deleted_at IS NULL
+                          AND EXISTS (
+                              SELECT 1
+                              FROM unnest(regexp_split_to_array(COALESCE(p.group_tag, ''), '\\s*,\\s*')) AS tags(tag)
+                              WHERE lower(trim(tags.tag)) = ANY($1::text[])
+                          )
+                        ORDER BY p.name
+                    """
+                    channels = await self.pool.fetch(channels_query, provider_groups)
+
+                    for channel in channels:
+                        channel_node = {
+                            "id": channel["id"],
+                            "name": channel["name"],
+                            "group_tag": channel["group_tag"],
+                            "is_enabled": channel["is_enabled"],
+                            "url": channel["url"],
+                            "priority": float(channel["priority"]) if channel["priority"] is not None else None,
+                            "weight": float(channel["weight"]) if channel["weight"] is not None else None,
+                        }
+                        key_node["channels"].append(channel_node)
+
+                user_node["keys"].append(key_node)
+
+            tree.append(user_node)
+
+        return tree
+
+    async def get_user_stats(
+        self,
+        user_id: int,
+        time_range: TimeRange,
+    ) -> dict[str, Any]:
+        """获取用户统计数据"""
+        schema = await self._get_schema()
+        table_full = f"{_quote_ident(schema.table_schema)}.{_quote_ident(schema.table_name)}"
+
+        timestamp_col = _quote_ident(schema.timestamp_col)
+        model_col = _quote_ident(schema.model_col) if schema.model_col else "NULL"
+        request_key_col = _quote_ident(schema.request_key_col) if schema.request_key_col else "NULL"
+        cost_col = _as_numeric(_quote_ident(schema.cost_col)) if schema.cost_col else "NULL"
+        prompt_tokens_col = _as_numeric(_quote_ident(schema.prompt_tokens_col)) if schema.prompt_tokens_col else "NULL"
+        completion_tokens_col = _as_numeric(_quote_ident(schema.completion_tokens_col)) if schema.completion_tokens_col else "NULL"
+
+        # 智能检测状态字段 - 优先使用status_code而不是is_success
+        status_col = None
+        success_condition = "1 = 1"  # 默认条件,匹配所有
+        failure_condition = "1 = 0"  # 默认条件,不匹配任何
+
+        # 先尝试status_code (integer)
+        cols_raw = await self.pool.fetch(
+            f"""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = $2
+            AND column_name IN ('status_code', 'is_success', 'status', 'code')
+            """,
+            schema.table_schema,
+            schema.table_name,
+        )
+        cols_map = {row["column_name"]: row["data_type"] for row in cols_raw}
+
+        if "status_code" in cols_map:
+            status_col = _quote_ident("status_code")
+            success_condition = f"{status_col} = 200"
+            failure_condition = f"{status_col} != 200"
+        elif "is_success" in cols_map:
+            status_col = _quote_ident("is_success")
+            success_condition = f"{status_col} = TRUE"
+            failure_condition = f"{status_col} = FALSE"
+        elif schema.status_col:
+            status_col = _quote_ident(schema.status_col)
+            # 尝试猜测类型
+            if schema.status_col.lower() in cols_map:
+                dtype = cols_map[schema.status_col.lower()].lower()
+                if "bool" in dtype:
+                    success_condition = f"{status_col} = TRUE"
+                    failure_condition = f"{status_col} = FALSE"
+                else:
+                    success_condition = f"{status_col} = 200"
+                    failure_condition = f"{status_col} != 200"
+
+        stats_query = f"""
+            SELECT
+                COUNT(*) as total_requests,
+                COUNT(DISTINCT {model_col}) as unique_models,
+                COUNT(DISTINCT {request_key_col}) as used_keys,
+                SUM({cost_col}) as total_cost,
+                SUM({prompt_tokens_col}) as total_prompt_tokens,
+                SUM({completion_tokens_col}) as total_completion_tokens,
+                AVG({cost_col}) as avg_cost_per_request,
+                COUNT(CASE WHEN {success_condition} THEN 1 END) as success_count,
+                COUNT(CASE WHEN {failure_condition} THEN 1 END) as failure_count
+            FROM {table_full}
+            WHERE {timestamp_col} >= $1
+              AND {timestamp_col} < $2
+              AND user_id = $3
+        """
+
+        by_model_query = f"""
+            SELECT
+                COALESCE({model_col}::text, 'unknown') AS model,
+                COUNT(*)::bigint AS calls,
+                ROUND(COALESCE(SUM({cost_col}), 0)::numeric, 6) AS cost,
+                COALESCE(SUM({prompt_tokens_col}), 0)::bigint AS prompt_tokens,
+                COALESCE(SUM({completion_tokens_col}), 0)::bigint AS completion_tokens,
+                COALESCE(SUM({prompt_tokens_col}), 0)::bigint + COALESCE(SUM({completion_tokens_col}), 0)::bigint AS tokens,
+                ROUND(
+                    COALESCE(
+                        100.0 * COUNT(*) FILTER (WHERE {success_condition}) / NULLIF(COUNT(*), 0),
+                        0
+                    )::numeric,
+                    2
+                ) AS success_rate
+            FROM {table_full}
+            WHERE {timestamp_col} >= $1
+              AND {timestamp_col} < $2
+              AND user_id = $3
+            GROUP BY 1
+            ORDER BY calls DESC, tokens DESC
+            LIMIT 20
+        """
+
+        trend_query = f"""
+            SELECT
+                TO_CHAR(date_trunc('day', {timestamp_col}), 'YYYY-MM-DD') AS day,
+                COUNT(*)::bigint AS calls,
+                ROUND(COALESCE(SUM({cost_col}), 0)::numeric, 6) AS cost,
+                COALESCE(SUM({prompt_tokens_col}), 0)::bigint AS prompt_tokens,
+                COALESCE(SUM({completion_tokens_col}), 0)::bigint AS completion_tokens,
+                COALESCE(SUM({prompt_tokens_col}), 0)::bigint + COALESCE(SUM({completion_tokens_col}), 0)::bigint AS tokens,
+                ROUND(
+                    COALESCE(
+                        100.0 * COUNT(*) FILTER (WHERE {success_condition}) / NULLIF(COUNT(*), 0),
+                        0
+                    )::numeric,
+                    2
+                ) AS success_rate
+            FROM {table_full}
+            WHERE {timestamp_col} >= $1
+              AND {timestamp_col} < $2
+              AND user_id = $3
+            GROUP BY 1
+            ORDER BY 1
+        """
+
+        key_count_query = """
+            SELECT
+                COUNT(*)::bigint AS total_keys,
+                COUNT(*) FILTER (WHERE is_enabled = TRUE)::bigint AS enabled_keys
+            FROM keys
+            WHERE user_id = $1
+              AND deleted_at IS NULL
+        """
+
+        stats_row, by_model_rows, trend_rows, key_count_row, user_info = await asyncio.gather(
+            self.pool.fetchrow(stats_query, time_range.start, time_range.end, user_id),
+            self.pool.fetch(by_model_query, time_range.start, time_range.end, user_id),
+            self.pool.fetch(trend_query, time_range.start, time_range.end, user_id),
+            self.pool.fetchrow(key_count_query, user_id),
+            self.pool.fetchrow(
+                "SELECT id, name, role, provider_group FROM users WHERE id = $1",
+                user_id,
+            ),
+        )
+
+        if not user_info:
+            raise ValueError(f"User #{user_id} not found")
+
+        total_requests = stats_row["total_requests"] or 0
+        success_count = stats_row["success_count"] or 0
+        success_rate = (success_count / total_requests * 100) if total_requests > 0 else 0
+        total_keys = int(key_count_row["total_keys"] or 0) if key_count_row else 0
+        enabled_keys = int(key_count_row["enabled_keys"] or 0) if key_count_row else 0
+        disabled_keys = max(total_keys - enabled_keys, 0)
+
+        return {
+            "user_id": user_id,
+            "user_info": {
+                "id": user_info["id"],
+                "name": user_info["name"],
+                "role": user_info["role"],
+                "provider_group": user_info["provider_group"],
+            },
+            "time_range": {
+                "start": _format_cn_date(time_range.start.date()),
+                "end": _format_cn_date((time_range.end - timedelta(days=1)).date()),
+            },
+            "stats": {
+                "total_requests": total_requests,
+                "unique_models": stats_row["unique_models"] or 0,
+                "used_keys": stats_row["used_keys"] or 0,
+                "total_keys": total_keys,
+                "enabled_keys": enabled_keys,
+                "disabled_keys": disabled_keys,
+                "total_cost_usd": float(stats_row["total_cost"] or 0),
+                "total_prompt_tokens": int(stats_row["total_prompt_tokens"] or 0),
+                "total_completion_tokens": int(stats_row["total_completion_tokens"] or 0),
+                "total_tokens": int(stats_row["total_prompt_tokens"] or 0)
+                + int(stats_row["total_completion_tokens"] or 0),
+                "avg_cost_per_request": float(stats_row["avg_cost_per_request"] or 0),
+                "success_count": success_count,
+                "failure_count": stats_row["failure_count"] or 0,
+                "success_rate": round(success_rate, 2),
+            },
+            "by_model": [
+                {
+                    "model": row["model"] or "unknown",
+                    "calls": int(row["calls"] or 0),
+                    "cost": float(row["cost"] or 0),
+                    "prompt_tokens": int(row["prompt_tokens"] or 0),
+                    "completion_tokens": int(row["completion_tokens"] or 0),
+                    "tokens": int(row["tokens"] or 0),
+                    "success_rate": float(row["success_rate"] or 0),
+                }
+                for row in by_model_rows
+            ],
+            "trend": [
+                {
+                    "day": row["day"],
+                    "calls": int(row["calls"] or 0),
+                    "cost": float(row["cost"] or 0),
+                    "prompt_tokens": int(row["prompt_tokens"] or 0),
+                    "completion_tokens": int(row["completion_tokens"] or 0),
+                    "tokens": int(row["tokens"] or 0),
+                    "success_rate": float(row["success_rate"] or 0),
+                }
+                for row in trend_rows
+            ],
+            "generated_at": _now_cn_datetime_str(),
+        }
+
+    async def get_user_key_stats(
+        self,
+        user_id: int,
+        key_id: int,
+        time_range: TimeRange,
+        records_page: int = 1,
+        records_page_size: int | None = None,
+    ) -> dict[str, Any]:
+        """获取用户特定密钥的详细统计，格式与 key-detail 保持一致"""
+        key_info = await self.pool.fetchrow(
+            "SELECT id, name, key, provider_group FROM keys WHERE id = $1 AND user_id = $2",
+            key_id,
+            user_id,
+        )
+        if not key_info:
+            raise ValueError(f"Key #{key_id} not found for user #{user_id}")
+
+        key_name = key_info["name"] or f"Key #{key_id}"
+        key_value = key_info["key"]
+
+        # 用密钥名称作为展示名，密钥值仅在后端内部使用
+        key_name_map = {key_value: key_name} if key_value else {}
+
+        payload = await self._load_token_usage_payload(
+            time_range,
+            key_values=[key_value] if key_value else [],
+            include_records=True,
+            key_name_map=key_name_map,
+            records_page=records_page,
+            records_page_size=records_page_size,
+        )
+
+        # 附加密钥基本信息（不含原始密钥值）
+        payload["key_info"] = {
+            "id": key_info["id"],
+            "name": key_name,
+            "key_preview": "",
+            "provider_group": key_info["provider_group"],
+        }
+        payload["user_id"] = user_id
+        payload["key_id"] = key_id
+        payload["time_range"] = {
+            "start": _format_cn_date(time_range.start.date()),
+            "end": _format_cn_date((time_range.end - timedelta(days=1)).date()),
+        }
+        payload["generated_at"] = _now_cn_datetime_str()
+        return payload
+
+
+
+
+
+
+
+
+

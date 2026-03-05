@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <title>CCH 数据统计平台 - 用户数据分析</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Noto+Sans+SC:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css?v=20260305fix3" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  </head>
+  <body data-page="users">
+    <div class="decor decor-1"></div>
+    <div class="decor decor-2"></div>
+    <div class="shell fade-in">
+      <aside class="sidebar panel">
+        <div class="brand">
+          <small>CCH Analytics</small>
+          <h1>数据统计平台</h1>
+        </div>
+        <nav class="menu">
+          <a href="/" data-page="overview">首页总览</a>
+          <a href="/availability" data-page="availability">模型可用性</a>
+          <a href="/channels" data-page="channels">渠道数据分析</a>
+          <a href="/tokens" data-page="tokens">Token 使用分析</a>
+          <a href="/models" data-page="models">模型使用情况</a>
+          <a href="/users" data-page="users">用户数据分析</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="topbar panel users-topbar">
+          <div>
+            <h2>用户数据分析</h2>
+            <p>按用户与密钥追踪调用质量、成本与 Token 结构</p>
+          </div>
+          <div class="btn-row">
+            <button id="refreshBtn" class="btn-primary">刷新数据</button>
+            <button id="exportCurrentBtn" class="btn-ghost">导出当前视图</button>
+          </div>
+        </section>
+
+        <section class="range-panel panel users-range-panel">
+          <div class="range-grid">
+            <label class="field">
+              <span>开始日期</span>
+              <input id="startDate" type="date" />
+            </label>
+            <label class="field">
+              <span>结束日期</span>
+              <input id="endDate" type="date" />
+            </label>
+            <div class="btn-row">
+              <button id="applyRangeBtn" class="btn-primary">应用时间段</button>
+              <button id="resetRangeBtn" class="btn-ghost">默认近30天</button>
+            </div>
+          </div>
+          <div class="users-range-quick">
+            <span class="meta">快捷范围</span>
+            <button id="quickRange7Btn" class="btn-chip">近7天</button>
+            <button id="quickRange30Btn" class="btn-chip">近30天</button>
+            <button id="quickRange90Btn" class="btn-chip">近90天</button>
+          </div>
+          <div id="metaText" class="meta">请从左侧选择用户或密钥</div>
+        </section>
+
+        <section class="grid-12 users-workspace">
+          <article class="chart-card panel col-4 user-tree-card">
+            <div class="chart-head">
+              <h3>用户树</h3>
+              <span id="treeMetaText">-</span>
+            </div>
+            <div class="tree-tools">
+              <label class="field tree-search-field">
+                <span>搜索用户 / 密钥 / 渠道</span>
+                <input id="treeSearchInput" type="text" placeholder="例如：测试用户、gpt、claude" />
+              </label>
+              <label class="field">
+                <span>状态筛选</span>
+                <select id="treeStatusFilter" class="sort-select">
+                  <option value="all">全部</option>
+                  <option value="enabled">仅启用</option>
+                  <option value="disabled">仅禁用</option>
+                </select>
+              </label>
+              <div class="btn-row tree-action-row">
+                <button id="treeExpandAllBtn" class="btn-ghost">全部展开</button>
+                <button id="treeCollapseAllBtn" class="btn-ghost">全部收起</button>
+              </div>
+            </div>
+            <div id="userTree" class="user-tree">
+              <div class="meta">正在加载...</div>
+            </div>
+          </article>
+
+          <div class="col-8" id="userDetailArea">
+            <article class="panel context-bar">
+              <div class="context-main">
+                <strong>当前上下文</strong>
+                <span id="activeContextText" class="context-chip">未选择</span>
+              </div>
+              <div id="recordFilterMeta" class="meta">-</div>
+            </article>
+
+            <article class="chart-card panel" id="detailEmpty">
+              <div class="detail-empty-hint">从左侧树形结构选择一个用户或密钥后开始分析</div>
+            </article>
+
+            <div id="userStatSection" hidden>
+              <section class="topbar panel users-subhead">
+                <div>
+                  <h2 id="userStatTitle">用户统计</h2>
+                  <p id="userStatSubtitle">-</p>
+                </div>
+              </section>
+
+              <section class="kpi-grid kpi-grid-6 user-kpi-grid">
+                <article class="kpi panel">
+                  <h3>总调用数</h3>
+                  <p id="uKpiCalls">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>成功率</h3>
+                  <p id="uKpiSuccess">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>总费用</h3>
+                  <p id="uKpiCost">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>总 Token (M)</h3>
+                  <p id="uKpiTokens">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>独立模型数</h3>
+                  <p id="uKpiModels">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>失败次数</h3>
+                  <p id="uKpiFails">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>启用密钥数</h3>
+                  <p id="uKpiEnabledKeys">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>均次费用</h3>
+                  <p id="uKpiAvgCost">-</p>
+                </article>
+              </section>
+
+              <section class="grid-12">
+                <article class="chart-card panel col-8">
+                  <div class="chart-head">
+                    <h3>模型调用分布</h3>
+                    <span>按调用量</span>
+                  </div>
+                  <div id="chartUserModels" class="chart chart-sm"></div>
+                </article>
+                <article class="chart-card panel col-4">
+                  <div class="chart-head">
+                    <h3>每日调用趋势</h3>
+                    <span>调用量 / 成功率</span>
+                  </div>
+                  <div id="chartUserTrend" class="chart chart-sm"></div>
+                </article>
+                <article class="chart-card panel col-12">
+                  <div class="chart-head">
+                    <h3>模型明细</h3>
+                    <span>调用数、成功率、费用、Token</span>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>模型</th>
+                          <th>调用数</th>
+                          <th>成功率</th>
+                          <th>费用</th>
+                          <th>总 Token (M)</th>
+                          <th>输入 (M)</th>
+                          <th>输出 (M)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="userModelTbody"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
+            </div>
+
+            <div id="keyStatSection" hidden>
+              <section class="topbar panel users-subhead">
+                <div>
+                  <h2 id="keyStatTitle">密钥统计</h2>
+                  <p id="keyStatSubtitle">-</p>
+                </div>
+              </section>
+
+              <section class="kpi-grid kpi-grid-6 key-kpi-grid">
+                <article class="kpi panel">
+                  <h3>总调用数</h3>
+                  <p id="kKpiCalls">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>成功率</h3>
+                  <p id="kKpiSuccess">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>总费用</h3>
+                  <p id="kKpiCost">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>总 Token (M)</h3>
+                  <p id="kKpiTokens">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>平均 Token / 次</h3>
+                  <p id="kKpiAvgTokens">-</p>
+                </article>
+                <article class="kpi panel">
+                  <h3>平均费用 / 次</h3>
+                  <p id="kKpiAvgCost">-</p>
+                </article>
+              </section>
+
+              <section class="panel key-tabs-wrap">
+                <div class="key-tabs" id="keyViewTabs">
+                  <button class="key-tab-btn is-active" data-tab="overview">趋势总览</button>
+                  <button class="key-tab-btn" data-tab="models">模型明细</button>
+                  <button class="key-tab-btn" data-tab="records">调用记录</button>
+                </div>
+              </section>
+
+              <section class="grid-12 key-tab-panel" data-tab-panel="overview">
+                <article class="chart-card panel col-8">
+                  <div class="chart-head">
+                    <h3>调用与 Token 趋势</h3>
+                    <span>按天统计</span>
+                  </div>
+                  <div id="chartKeyTrend" class="chart"></div>
+                </article>
+                <article class="chart-card panel col-4">
+                  <div class="chart-head">
+                    <h3>输入/输出/缓存占比</h3>
+                    <span>环形图</span>
+                  </div>
+                  <div id="chartKeyTokenSplit" class="chart"></div>
+                </article>
+              </section>
+
+              <section class="grid-12 key-tab-panel" data-tab-panel="models" hidden>
+                <article class="chart-card panel col-12">
+                  <div class="chart-head">
+                    <h3>模型 Token 消耗排行</h3>
+                    <select id="keyModelSort" class="sort-select">
+                      <option value="desc">Token: 高到低</option>
+                      <option value="asc">Token: 低到高</option>
+                    </select>
+                  </div>
+                  <div id="chartKeyByModel" class="chart chart-sm"></div>
+                </article>
+                <article class="chart-card panel col-12">
+                  <div class="chart-head">
+                    <h3>模型使用明细</h3>
+                    <span>调用、成功率、费用、Token</span>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>模型</th>
+                          <th>调用数</th>
+                          <th>成功率</th>
+                          <th>费用</th>
+                          <th>总 Token (M)</th>
+                          <th>输入 (M)</th>
+                          <th>输出 (M)</th>
+                          <th>缓存 (M)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="keyModelTbody"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
+
+              <section class="grid-12 key-tab-panel" data-tab-panel="records" hidden>
+                <article class="chart-card panel col-12">
+                  <div class="chart-head">
+                    <h3>密钥使用记录</h3>
+                    <span>最近调用明细</span>
+                  </div>
+                  <div class="record-controls">
+                    <div class="record-controls-title">自动刷新与显示设置</div>
+                    <div class="record-refresh-meta">
+                      <span id="recordRefreshStatus" class="record-refresh-pill">自动刷新：未开启</span>
+                      <span id="recordRefreshCountdown" class="record-refresh-pill">下次刷新：-</span>
+                    </div>
+                    <div class="record-controls-grid">
+                      <label class="field field-checkbox">
+                        <span>自动刷新</span>
+                        <div class="inline-check">
+                          <input id="autoRefreshEnabledInput" type="checkbox" />
+                          <span>开启自动刷新</span>
+                        </div>
+                      </label>
+                      <label class="field">
+                        <span>自动刷新间隔(秒)</span>
+                        <input id="autoRefreshSecondsInput" type="number" min="30" step="10" />
+                      </label>
+                      <label class="field">
+                        <span>每页条数</span>
+                        <select id="recordsPageSizeSelect"></select>
+                      </label>
+                      <div class="btn-row">
+                        <button id="applyVisualConfigBtn" class="btn-primary">应用设置</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="record-filter-row">
+                    <label class="field">
+                      <span>记录搜索</span>
+                      <input id="recordKeywordInput" type="text" placeholder="模型 / 渠道 / 错误关键字" />
+                    </label>
+                    <label class="field">
+                      <span>状态筛选</span>
+                      <select id="recordStatusFilter" class="sort-select">
+                        <option value="all">全部状态</option>
+                        <option value="success">仅成功</option>
+                        <option value="failed">仅失败</option>
+                        <option value="other">其他</option>
+                      </select>
+                    </label>
+                    <div class="btn-row">
+                      <button id="applyRecordFilterBtn" class="btn-primary">筛选</button>
+                      <button id="resetRecordFilterBtn" class="btn-ghost">重置</button>
+                    </div>
+                  </div>
+
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Key</th>
+                          <th>时间</th>
+                          <th>模型</th>
+                          <th>渠道</th>
+                          <th>状态</th>
+                          <th>费用</th>
+                          <th>总 Token (M)</th>
+                          <th>耗时(ms)</th>
+                          <th>错误信息</th>
+                        </tr>
+                      </thead>
+                      <tbody id="keyRecordTbody"></tbody>
+                    </table>
+                  </div>
+                  <div class="table-pager">
+                    <span id="recordPageInfo" class="meta">第 1 页 / 共 1 页</span>
+                    <div id="recordPageButtons" class="pager-pages"></div>
+                    <div class="pager-jump">
+                      <input id="recordJumpInput" type="number" min="1" placeholder="页码" />
+                      <button id="recordJumpBtn" class="btn-ghost">跳转</button>
+                    </div>
+                    <div class="btn-row">
+                      <button id="recordPrevBtn" class="btn-ghost">上一页</button>
+                      <button id="recordNextBtn" class="btn-ghost">下一页</button>
+                    </div>
+                  </div>
+                </article>
+              </section>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/static/common.js?v=20260305fix3"></script>
+    <script src="/static/page-users.js?v=20260305fix3"></script>
+  </body>
+</html>
+
+
+
+
